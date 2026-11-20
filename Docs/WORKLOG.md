@@ -2,6 +2,12 @@
 
 > 後續每次修改請在此檔案新增一筆版本紀錄，不覆蓋舊紀錄。
 
+## 2026-11-21 — v0.2.7 加快收管
+
+- 捲盤提高回收速度，快速移動或管身受阻時使用較柔和的牽引。Windows 玩家版原路線的 10 公尺收管由 8.90 秒縮短至 3.18 秒，前後版本畫面見 [收管對比](Validation/2026-11-21-fast-reel/reel-comparison.gif)。
+- 解壓後的玩家版通過拉脫、回收和第一關救援。到倉庫後等 2.98 秒即可換源，交付布丁時剩 22.4 秒。代理檢查原視距連續畫面，使用者手感待試玩。
+- [GitHub v0.2.7 試玩版](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/tag/v0.2.7-prototype)。本機可攜包為 `Builds/FireRescue-v0.2.7-Windows-x64.zip`，驗證紀錄在 `Logs/Reel027/windows-hose-final`、`windows-rescue-final`。
+
 ## 2026-11-21 — v0.2.6 軟管實體化與第一關驗收
 
 - 依試玩回饋處理管身不自然及提前卡住。第一關改用 Unity PhysX 管鏈。各節有剛體、關節、碰撞及摩擦，沿著重力、玩家移動和牆面接觸變形。10 公尺全展開並量到來源接頭拉力後才限制向外移動，持續施力才脫開。

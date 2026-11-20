@@ -19,10 +19,11 @@ namespace FireRescue
         const float PayoutSpeed = 8f;
         const float ReelApproachDistance = .04f;
         const float SourceReleaseDelay = .08f;
+        const float ReelSpeedMultiplier = 3f;
         const float ReelMaximumSpeed = 2.5f;
         const float ReelAccelerationTime = .7f;
         const float ReelBrakeAcceleration = 3f;
-        const float ReelDriveLead = .055f;
+        const float ReelMotionCooldown = .18f;
 
         sealed class Segment
         {
@@ -51,6 +52,7 @@ namespace FireRescue
         Vector3 lastTangent = Vector3.forward;
         float maximumLength;
         float reelElapsed;
+        float reelCooldown;
         float reelCapture;
         float acceptedCapture;
         float sourceTension;
@@ -59,6 +61,7 @@ namespace FireRescue
         float maximumJointGap;
         bool initialized;
         bool reeling;
+        bool fastReel;
 
         public bool IsActive => initialized && segments.Count > 0;
         public bool IsReeling => reeling;
@@ -141,13 +144,14 @@ namespace FireRescue
         {
             if (!IsActive) return;
             float step = ValidStep(dt);
+            float inletTravel = reeling ? Vector3.Distance(handAnchor.position,handTarget) : 0f;
             MoveAnchor(sourceAnchor, sourceTarget);
             MoveAnchor(handAnchor, handTarget);
 
             if (reeling)
             {
                 RestoreReleasedSourceContacts();
-                Reel(step);
+                Reel(step,inletTravel);
                 return;
             }
 
@@ -196,13 +200,15 @@ namespace FireRescue
         {
             if (!IsActive || reeling) return;
             reeling = true;
+            fastReel = false;
+            reelCooldown = 0f;
             AllowPayout = false;
             reelElapsed = 0f;
             reelCapture = 0f;
             acceptedCapture=0f;
             if (sourceJoint) DestroyJoint(sourceJoint);
             sourceJoint = null;
-            if (gripJoint) ConfigureGripDrive(gripJoint,true);
+            if (gripJoint) ConfigureGripDrive(gripJoint,true,false);
             UpdateGripJoint(true);
         }
 
@@ -338,7 +344,7 @@ namespace FireRescue
             gripJoint.connectedBody = last.Body;
             gripJoint.anchor = Vector3.zero;
             gripJoint.connectedAnchor = Vector3.up * last.Length;
-            ConfigureGripDrive(gripJoint, reeling);
+            ConfigureGripDrive(gripJoint,reeling,fastReel);
             gripJoint.enablePreprocessing = false;
             gripJoint.projectionMode = JointProjectionMode.None;
         }
@@ -364,7 +370,7 @@ namespace FireRescue
             joint.angularYZDrive = drive;
         }
 
-        static void ConfigureGripDrive(ConfigurableJoint joint, bool reeling)
+        static void ConfigureGripDrive(ConfigurableJoint joint, bool reeling, bool fastReel)
         {
             // A finite implicit PD drive lets the user pull the end and avoids the
             // unstable high-stiffness AddForce spring which used to explode on impact.
@@ -375,9 +381,9 @@ namespace FireRescue
             // to a kinematic CharacterController, not an unbounded hard motor.
             JointDrive drive = new JointDrive
             {
-                positionSpring = reeling ? 550f : 1800f,
-                positionDamper = reeling ? 18f : 32f,
-                maximumForce = reeling ? 18f : 120f
+                positionSpring = reeling ? (fastReel ? 3300f : 550f) : 1800f,
+                positionDamper = reeling ? (fastReel ? 36f : 18f) : 32f,
+                maximumForce = reeling ? (fastReel ? 55f : 18f) : 120f
             };
             joint.xDrive = drive;
             joint.yDrive = drive;
@@ -462,10 +468,20 @@ namespace FireRescue
             return needed>.025f && (error > .035f || force > 12f);
         }
 
-        void Reel(float dt)
+        void Reel(float dt, float inletTravel)
         {
             reelElapsed += dt;
             if (segments.Count == 0) { FinishReel(); return; }
+            // The soft coupling takes over when the inlet moves or the rope snags.
+            // Keep it engaged across several fixed steps to avoid drive chatter.
+            bool loaded = inletTravel > .014f || MaximumJointGap > .035f || GripError > .085f;
+            reelCooldown = loaded ? ReelMotionCooldown : Mathf.Max(0f,reelCooldown-dt);
+            bool useFastReel = reelCooldown == 0f;
+            if (useFastReel != fastReel)
+            {
+                fastReel = useFastReel;
+                if (gripJoint) ConfigureGripDrive(gripJoint,true,fastReel);
+            }
             if (reelElapsed < SourceReleaseDelay) return;
             Segment last = segments[segments.Count - 1];
             Vector3 proximal = ProximalPoint(last);
@@ -477,11 +493,13 @@ namespace FireRescue
             if ((closest-handTarget).sqrMagnitude<ReelApproachDistance*ReelApproachDistance)
                 acceptedCapture=Mathf.Max(acceptedCapture,Mathf.Min(reelCapture,1f-along/last.Length));
             MaterialLength=SumMaterial();
+            float speedFactor = fastReel ? ReelSpeedMultiplier : 1f;
             float ramp = Mathf.SmoothStep(.3f, ReelMaximumSpeed,
-                Mathf.Clamp01((reelElapsed-SourceReleaseDelay)/ReelAccelerationTime));
+                Mathf.Clamp01((reelElapsed-SourceReleaseDelay)*speedFactor/ReelAccelerationTime));
             float brake = Mathf.Sqrt(2f*ReelBrakeAcceleration*Mathf.Max(.01f,MaterialLength));
-            float amount = Mathf.Min(ramp,brake)*dt;
-            float allowed = Mathf.Clamp01(acceptedCapture+ReelDriveLead/last.Length);
+            float amount = Mathf.Min(ramp,brake)*speedFactor*dt;
+            float lead = fastReel ? .075f : .055f;
+            float allowed = Mathf.Clamp01(acceptedCapture+lead/last.Length);
             reelCapture=Mathf.Min(allowed,reelCapture+amount/last.Length);
             UpdateGripJoint(true);
             // Capture only an actually arrived body. A snagged body remains live,
