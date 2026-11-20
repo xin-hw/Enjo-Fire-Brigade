@@ -1,8 +1,8 @@
-# 炎上消防隊 v0.2.7
+# 炎上消防隊 v0.3
 
 ## 下載方法
 
-[下載 Windows x64 ZIP](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/download/v0.2.7-prototype/FireRescue-v0.2.7-Windows-x64.zip)，完整解壓縮後執行 `FireRescue.exe`。
+[下載 Windows x64 ZIP](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/download/v0.3/FireRescue-v0.3-Windows-x64.zip)，完整解壓縮後執行 `FireRescue.exe`。
 
 ## 操作
 
@@ -15,9 +15,17 @@
 | E | 接管／拔管、拿放／交付布丁 |
 | R | 重新開始 |
 
-## 與 v0.2.6 的差異
+## 與 v0.2.1 的差異
 
-- 10 公尺收管約快三倍。同一路線實測 **8.90 秒 → 3.18 秒**。
-- 保留緩起步與末段減速，轉角受阻時會放慢。
+![兩版第一關實際遊戲對比](Docs/Validation/2026-11-21-v03/v021-v03-comparison.gif)
 
-![第一關實機收管對比](Docs/Validation/2026-11-21-fast-reel/reel-comparison.gif)
+左邊是 v0.2.1，右邊是 v0.3。依序比較地面噴水、水碰火、檯面命中和拉管回收。
+
+| 項目 | v0.2.1 | v0.3 |
+| --- | --- | --- |
+| 噴水 | 沿噴嘴方向噴出藍色水滴 | 透明水滴飛向準星瞄準的表面，可打到檯面 |
+| 積水與火 | 地面短暫濕潤 | 水滴累積成淺水灘，接觸普通火冒白色蒸汽 |
+| 水管 | 簡化管線，到上限限制移動 | 實體軟管會拖地繞牆，拉緊後可脫開。10 公尺收回實測約 3.2 秒 |
+| 朝向 | 靜止時維持原朝向 | 靜止時平滑朝向準星 |
+| 畫面 | 房間使用不同色調 | 白地板、米色牆與較柔和的地面火光 |
+| 布丁期限 | 60 秒 | 120 秒 |

@@ -2,6 +2,11 @@
 
 > 後續每次修改請在此檔案新增一筆版本紀錄，不覆蓋舊紀錄。
 
+## 2026-11-21 — v0.3 試玩版命名與公開比較
+
+- 目前玩家版命名為 v0.3，Windows ZIP 為 `Builds/FireRescue-v0.3-Windows-x64.zip`。解壓後確認版本 0.3，通過積水、蒸汽、檯面與實體收管，10 公尺回收實測 3.18 秒。
+- GitHub README 比較 v0.2.1 與 v0.3。兩版皆以各自的第一關相機錄製，左側來自 v0.2.1 標籤的 Unity 場景，右側來自 v0.3 Windows 玩家版。影片為並排原畫面，版本與差異說明放在影片下方。[對比片段](Validation/2026-11-21-v03/v021-v03-comparison.gif) · [v0.3 下載](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/tag/v0.3)
+
 ## 2026-11-21 — v0.2.7 加快收管
 
 - 捲盤提高回收速度，快速移動或管身受阻時使用較柔和的牽引。Windows 玩家版原路線的 10 公尺收管由 8.90 秒縮短至 3.18 秒，前後版本畫面見 [收管對比](Validation/2026-11-21-fast-reel/reel-comparison.gif)。

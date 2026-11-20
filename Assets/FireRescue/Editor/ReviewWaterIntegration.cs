@@ -8,8 +8,8 @@ namespace FireRescue.Editor
 {
     public static class ReviewWaterIntegration
     {
-        public const string Version = "0.2.7";
-        public const string PlayerPath = "Builds/Local-v0.2.7/FireRescue.exe";
+        public const string Version = "0.3";
+        public const string PlayerPath = "Builds/Local-v0.3/FireRescue.exe";
 
         public static void Validate()
         {
