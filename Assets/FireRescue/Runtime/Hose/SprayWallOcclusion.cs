@@ -12,6 +12,7 @@ namespace FireRescue
         [SerializeField] float wallProbeHeight = .35f;
         [SerializeField] float fullWallHeight = 2.5f;
         readonly RaycastHit[] cableHits = new RaycastHit[64];
+        readonly Collider[] cableOverlaps = new Collider[32];
         readonly List<SlicePoint> slicePoints = new List<SlicePoint>();
         bool sliceReady;
         struct SlicePoint { public Collider Wall; public Vector3 Position; }
@@ -19,17 +20,17 @@ namespace FireRescue
         public void Configure(Collider[] wallColliders, HoseWindow[] windows)
         { walls = wallColliders; openings = windows; sliceReady = false; }
 
-        // Cable thickness is independent from the spray ray. Ignore furniture/actors here,
-        // but never treat the dollhouse cutaway as a physical opening.
-        public bool CableBlocked(Vector3 from, Vector3 to, float radius)
+        // A live source opts the physical tube into the real fixed obstacles as well
+        // as the cutaway walls. The fluid source's own body surrounds its coupling.
+        public bool CableBlocked(Vector3 from, Vector3 to, float radius, FluidSource source = null)
         {
             if (!isActiveAndEnabled || walls == null) return false;
             if (TryBlock(from, to, out _, out _, radius)) return true;
             Vector3 a = new Vector3(from.x, wallProbeHeight, from.z);
             Vector3 b = new Vector3(to.x, wallProbeHeight, to.z);
             Vector3 delta = b - a; float length = delta.magnitude;
-            if (length < .00001f) return false;
-            int count = Physics.SphereCastNonAlloc(a, radius, delta / length, cableHits, length, ~0, QueryTriggerInteraction.Ignore);
+            if (length < .00001f) return source && FixedCableBlocked(from,to,radius,source);
+            int count = Physics.SphereCastNonAlloc(a, radius, delta / length, cableHits, length, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
             if (count == cableHits.Length) return true; // Dense/unsupported geometry fails closed.
             for (int i=0;i<count;i++)
             {
@@ -37,12 +38,45 @@ namespace FireRescue
                 Vector3 crossing = Vector3.Lerp(from, to, Mathf.Clamp01(cableHits[i].distance / length));
                 if (!AllowsWindow(crossing, radius)) return true;
             }
-            return false;
+            return source && FixedCableBlocked(from, to, radius, source);
+        }
+
+        bool FixedCableBlocked(Vector3 from, Vector3 to, float radius, FluidSource source)
+        {
+            const int fixedObstacles = 1 << 8;
+            Vector3 delta = to - from;
+            float length = delta.magnitude;
+            if (length > .00001f)
+            {
+                int hits = Physics.SphereCastNonAlloc(from,radius,delta/length,cableHits,length,
+                    fixedObstacles,QueryTriggerInteraction.Ignore);
+                if (hits==cableHits.Length) return true;
+                for (int i=0;i<hits;i++)
+                {
+                    RaycastHit hit=cableHits[i];
+                    if (!hit.collider.transform.IsChildOf(source.transform) &&
+                        !(IsWall(hit.collider)&&AllowsWindow(hit.point,radius))) return true;
+                }
+            }
+            // A sphere cast does not report a collider already overlapped at its start.
+            return EndOverlaps(from) || EndOverlaps(to);
+
+            bool EndOverlaps(Vector3 point)
+            {
+                int count=Physics.OverlapSphereNonAlloc(point,radius,cableOverlaps,fixedObstacles,QueryTriggerInteraction.Ignore);
+                if (count==cableOverlaps.Length) return true;
+                for (int i=0;i<count;i++)
+                {
+                    Collider hit=cableOverlaps[i];
+                    if (!hit.transform.IsChildOf(source.transform) && !(IsWall(hit)&&AllowsWindow(point,radius))) return true;
+                }
+                return false;
+            }
         }
 
         // A clear chord alone is insufficient: collapsing a loop could teleport the hose
         // through an entire pillar inside the swept triangle. Test the wall cross-section.
-        public bool CableSweepClear(Vector3 a, Vector3 b, Vector3 c)
+        public bool CableSweepClear(Vector3 a, Vector3 b, Vector3 c, FluidSource source = null)
         {
             if (!sliceReady) BuildSlice();
             float area = Cross(b-a,c-a);
@@ -54,6 +88,16 @@ namespace FireRescue
                 float bc=Cross(c-b,p.Position-b)/area;
                 float ca=Cross(a-c,p.Position-c)/area;
                 if (ab>.0001f && bc>.0001f && ca>.0001f) return false;
+            }
+            if (source)
+            {
+                // Also sweep intermediate chords against fixed props. This catches a
+                // route straightening through furniture inside the endpoint sweep.
+                for (int i=1;i<4;i++)
+                {
+                    Vector3 edge=Vector3.Lerp(a,c,i*.25f);
+                    if (FixedCableBlocked(b,edge,HoseWrapPath.Radius,source)) return false;
+                }
             }
             return true;
         }
@@ -93,8 +137,11 @@ namespace FireRescue
         }
 
         public bool TryBlock(Vector3 from, Vector3 to, out Collider obstacle, out Vector3 point, float radius = 0f)
+            => TryBlock(from,to,out obstacle,out point,out _,radius);
+
+        public bool TryBlock(Vector3 from, Vector3 to, out Collider obstacle, out Vector3 point, out Vector3 normal, float radius = 0f)
         {
-            obstacle = null; point = to;
+            obstacle = null; point = to; normal=Vector3.up;
             if (!isActiveAndEnabled || walls == null) return false;
             Vector3 a = new Vector3(from.x, wallProbeHeight, from.z);
             Vector3 b = new Vector3(to.x, wallProbeHeight, to.z);
@@ -114,6 +161,7 @@ namespace FireRescue
                 Vector3 crossing = Vector3.Lerp(from, to, distance / length);
                 if (crossing.y > fullWallHeight + radius || AllowsWindow(crossing, radius) || distance >= closest) continue;
                 closest = distance; obstacle = wall; point = crossing;
+                normal=Vector3.Dot(hit.normal,direction)>0?-hit.normal:hit.normal;
             }
             return obstacle;
         }

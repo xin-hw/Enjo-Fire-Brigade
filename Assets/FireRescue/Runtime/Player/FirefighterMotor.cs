@@ -41,7 +41,7 @@ namespace FireRescue
             if (hose)
             {
                 Vector3 requested = desired;
-                desired = hose.ConstrainPosition(desired);
+                desired = hose.ConstrainMovement(desired, direction, dt);
                 Vector3 blocked = requested - desired; blocked.y = 0;
                 if (blocked.sqrMagnitude > .00000001f)
                 {
@@ -62,6 +62,7 @@ namespace FireRescue
         public void Face(Vector3 point, float dt, bool immediate = false)
         {
             if (dt <= 0) return;
+            Quaternion before=transform.rotation;
             Vector3 direction = point - transform.position;
             direction.y = 0;
             if (direction.sqrMagnitude > .001f)
@@ -70,7 +71,23 @@ namespace FireRescue
             // Facing moves the independent inlet around the body. Keep that movement under
             // the same wrapped length/collision constraint; the motor remains the position owner.
             if(hose && hose.AutomaticWallWrapping && hose.IsConnected)
-                controller.Move(hose.ConstrainPosition(transform.position)-transform.position);
+            {
+                if (hose.BreakUnderTension)
+                {
+                    if (hose.TryKeepTurn(out Vector3 correction))
+                    {
+                        Vector3 expected=transform.position+correction;
+                        controller.Move(correction);
+                        if (Vector3.Distance(expected,transform.position)>.003f)
+                        {
+                            transform.rotation=before;
+                            hose.TryKeepTurn(out _);
+                        }
+                    }
+                    else transform.rotation=before;
+                }
+                else controller.Move(hose.ConstrainPosition(transform.position)-transform.position);
+            }
         }
 
         void OnControllerColliderHit(ControllerColliderHit hit)
@@ -89,6 +106,19 @@ namespace FireRescue
         {
             impulse.y = 0;
             externalVelocity = Vector3.ClampMagnitude(externalVelocity + impulse, 8);
+        }
+
+        internal void ApplyPhysicalHosePull(Vector3 correction)
+        {
+            if (!controller || !controller.enabled || !isActiveAndEnabled) return;
+            correction.y=0f;
+            controller.Move(correction);
+            if (correction.sqrMagnitude<.000001f) return;
+            Vector3 outward=-correction.normalized;
+            float speedOut=Vector3.Dot(velocity,outward);
+            if (speedOut>0f) velocity-=outward*speedOut;
+            speedOut=Vector3.Dot(externalVelocity,outward);
+            if (speedOut>0f) externalVelocity-=outward*speedOut;
         }
     }
 }

@@ -25,13 +25,18 @@ namespace FireRescue
         [SerializeField, Min(.01f)] private float wetnessDryRate = .3f;
         [SerializeField, Min(.01f)] private float waterExtinguishRate = .45f;
         [SerializeField] private bool powderPreventsReignition;
+        [SerializeField, Min(0f)] private float fuelFlameGain;
+        [SerializeField] private FireSpreadBarrier spreadBarrier;
 
         private FireCellState[] cells = Array.Empty<FireCellState>();
         private FireCellState[] nextCells = Array.Empty<FireCellState>();
         private bool configured;
+        Predicate<Vector3> solidFloor;
 
         public bool Simulate { get; set; } = true;
         public float SpreadRate => fireSpreadRate;
+        public void SetSpreadBarrier(FireSpreadBarrier barrier) => spreadBarrier=barrier;
+        public bool CanTransferHeat(Vector3 from,Vector3 to) => !spreadBarrier || spreadBarrier.Allows(from,to);
         public void EnablePowderFirebreak(bool enabled)=>powderPreventsReignition=enabled;
         public void SetSpreadRate(float rate)
         { if(IsFinite(rate)&&rate>=0)fireSpreadRate=rate; }
@@ -132,6 +137,26 @@ namespace FireRescue
                 if (InBounds(seed.x, seed.y) && cells[Index(seed.x, seed.y)].Fuel > 0f)
                     cells[Index(seed.x, seed.y)].Intensity = .7f;
             }
+            ExcludeSolidFloor();
+        }
+
+        internal void SetSolidFloor(Predicate<Vector3> isSolid)
+        {
+            solidFloor = isSolid;
+            EnsureInitialized();
+            ExcludeSolidFloor();
+        }
+
+        void ExcludeSolidFloor()
+        {
+            if (solidFloor == null) return;
+            for (int z = 0; z < Height; z++)
+            for (int x = 0; x < Width; x++)
+            {
+                int index = Index(x, z);
+                if (cells[index].Fuel > 0f && solidFloor(CellCenter(x, z)))
+                    cells[index] = default;
+            }
         }
 
         public FireCellState GetCell(int x, int z)
@@ -188,7 +213,49 @@ namespace FireRescue
             if (!HasValidTimedInput(world, amount, radius, duration) || !ValidMultipliers(extinguishMultiplier, residueMultiplier))
                 return;
 
-            ApplyTimedSuppressant(world, amount, radius, canReach, waterExtinguishRate, duration, true, extinguishMultiplier, residueMultiplier);
+            ApplyTimedSuppressant(world, amount, radius, canReach, waterExtinguishRate, duration, true, extinguishMultiplier, residueMultiplier, out _);
+        }
+
+        // Physical water already has a surface owner. Return only the dose that
+        // reacted in the contacted cell, leaving residue to that surface.
+        internal float ReactToWaterContact(Vector3 world, float amount)
+        {
+            if (!IsFinite(amount) || amount <= 0f || waterExtinguishRate <= 0f ||
+                !TryGetCell(world, out var cell)) return 0f;
+            EnsureInitialized();
+            int index = Index(cell.x, cell.y);
+            var state = cells[index];
+            if (!state.IsBurning) return 0f;
+            float used = Mathf.Min(amount, state.Intensity / waterExtinguishRate);
+            state.Intensity = Mathf.Max(0f, state.Intensity - used * waterExtinguishRate);
+            if (!state.IsBurning) state.Intensity = 0f;
+            cells[index] = state;
+            return used;
+        }
+
+        // Physical films pay for cooling with the water that actually boils away.
+        // Intensity describes heat per square metre, so changing the fire grid's
+        // resolution must not multiply the cooling energy of the same water volume.
+        internal double ReactToSurfaceWater(Vector3 world, double availableVapor)
+        {
+            if (double.IsNaN(availableVapor) || double.IsInfinity(availableVapor) || availableVapor <= 0d ||
+                waterExtinguishRate <= 0f || !TryGetCell(world, out var cell)) return 0d;
+            EnsureInitialized();
+            int index = Index(cell.x, cell.y);
+            var state = cells[index];
+            if (state.Intensity <= 0f) return 0d;
+            double coolingPerVolume = waterExtinguishRate / (CellSize * CellSize * .32d);
+            double vapor = Math.Min(availableVapor, state.Intensity / coolingPerVolume);
+            state.Intensity = Mathf.Max(0f, state.Intensity - (float)(vapor * coolingPerVolume));
+            cells[index] = state;
+            return vapor;
+        }
+
+        internal float ReactToWaterFootprint(Vector3 world, float amount, float radius, float duration,
+            Predicate<Vector3> canReach, out Vector3 steamPoint)
+        {
+            return ApplyTimedSuppressant(world, amount, radius, canReach, waterExtinguishRate, duration,
+                true, 1f, 1f, out steamPoint);
         }
 
         // Powder suppresses ordinary floor fire without creating water or oil patches.
@@ -208,7 +275,7 @@ namespace FireRescue
             if (!HasValidTimedInput(world, amount, radius, duration) || !ValidMultipliers(extinguishMultiplier, residueMultiplier))
                 return;
 
-            ApplyTimedSuppressant(world, amount, radius, canReach, .5f, duration, false, extinguishMultiplier, residueMultiplier);
+            ApplyTimedSuppressant(world, amount, radius, canReach, .5f, duration, false, extinguishMultiplier, residueMultiplier, out _);
         }
 
         void ApplySuppressant(Vector3 world, float amount, float radius, Predicate<Vector3> canReach, float rate, bool wet)
@@ -236,8 +303,8 @@ namespace FireRescue
             }
         }
 
-        private void ApplyTimedSuppressant(Vector3 world, float amount, float radius, Predicate<Vector3> canReach,
-            float rate, float duration, bool wet, float extinguishMultiplier, float residueMultiplier)
+        private float ApplyTimedSuppressant(Vector3 world, float amount, float radius, Predicate<Vector3> canReach,
+            float rate, float duration, bool wet, float extinguishMultiplier, float residueMultiplier, out Vector3 steamPoint)
         {
             EnsureInitialized();
             bool hasHitCell = TryGetCell(world, out var hitCell);
@@ -246,6 +313,9 @@ namespace FireRescue
             int minZ = Mathf.Max(0, Mathf.FloorToInt((world.z - radius - Origin.z) / CellSize));
             int maxZ = Mathf.Min(Height - 1, Mathf.FloorToInt((world.z + radius - Origin.z) / CellSize));
             float radiusSquared = radius * radius;
+            steamPoint = world;
+            float closestFire = float.PositiveInfinity;
+            float reacted = 0f;
             for (int z = minZ; z <= maxZ; z++)
             for (int x = minX; x <= maxX; x++)
             {
@@ -257,6 +327,17 @@ namespace FireRescue
 
                 int index = Index(x, z);
                 var state = cells[index];
+                if (wet && state.IsBurning && rate * extinguishMultiplier > 0f)
+                {
+                    // The footprint can cool nearby cells. This parcel evaporates at most once.
+                    reacted = Mathf.Max(reacted, Mathf.Min(amount, state.Intensity / (rate * extinguishMultiplier)));
+                    float distance = isHitCell ? 0f : dx * dx + dz * dz;
+                    if (distance < closestFire)
+                    {
+                        closestFire = distance;
+                        steamPoint = isHitCell ? world : center;
+                    }
+                }
                 state.Intensity = Mathf.Max(0f, state.Intensity - amount * rate * extinguishMultiplier);
                 if (wet && duration > 0f && residueMultiplier > 0f)
                 {
@@ -270,6 +351,7 @@ namespace FireRescue
                 }
                 cells[index] = state;
             }
+            return reacted;
         }
 
         public void ApplyOil(Vector3 world, float amount, float radius = .7f)
@@ -344,10 +426,10 @@ namespace FireRescue
             state.Intensity=Mathf.Clamp01(intensity);cells[index]=state;
         }
 
-        /// <summary>Runs one deterministic simulation step. A non-positive delta is ignored.</summary>
+        /// <summary>Runs one deterministic simulation step. Non-finite or non-positive deltas are ignored.</summary>
         public void Step(float dt)
         {
-            if (dt <= 0f)
+            if (dt <= 0f || !IsFinite(dt))
                 return;
 
             EnsureInitialized();
@@ -399,7 +481,8 @@ namespace FireRescue
                         updated.Fuel = Mathf.Max(0f, current.Fuel - fuelLoss);
                         updated.Oil = Mathf.Max(0f, current.Oil - oilBurnRate * dt);
                         updated.Intensity = Mathf.Max(0f, current.Intensity - naturalIntensityLoss * dt);
-                        updated.Intensity += current.Oil * oilFlameGain * dt;
+                        // Optional fuel growth is uniform throughout the round, not an opening flashover.
+                        updated.Intensity += (current.Oil * oilFlameGain + (current.Fuel>0?fuelFlameGain:0)) * dt;
                         if (updated.Fuel <= 0f && updated.Oil <= 0f)
                             updated.Intensity = 0f;
                         else
@@ -427,10 +510,11 @@ namespace FireRescue
                         continue;
 
                     var oilFactor = 1f + current.Oil * oilSpreadMultiplier;
-                    SpreadTo(x - 1, z, current.Intensity, oilFactor, dt);
-                    SpreadTo(x + 1, z, current.Intensity, oilFactor, dt);
-                    SpreadTo(x, z - 1, current.Intensity, oilFactor, dt);
-                    SpreadTo(x, z + 1, current.Intensity, oilFactor, dt);
+                    var source=CellCenter(x,z);
+                    SpreadTo(x - 1, z, source,current.Intensity, oilFactor, dt);
+                    SpreadTo(x + 1, z, source,current.Intensity, oilFactor, dt);
+                    SpreadTo(x, z - 1, source,current.Intensity, oilFactor, dt);
+                    SpreadTo(x, z + 1, source,current.Intensity, oilFactor, dt);
                 }
             }
 
@@ -439,7 +523,7 @@ namespace FireRescue
             nextCells = swap;
         }
 
-        private void SpreadTo(int x, int z, float sourceIntensity, float sourceOilFactor, float dt)
+        private void SpreadTo(int x, int z, Vector3 source,float sourceIntensity, float sourceOilFactor, float dt)
         {
             if (!InBounds(x, z))
                 return;
@@ -448,6 +532,7 @@ namespace FireRescue
             var target = cells[index];
             if ((target.Fuel <= 0f && target.Oil <= 0f) || target.Wetness > .08f || (powderPreventsReignition&&target.Powder>.08f))
                 return;
+            if(!CanTransferHeat(source,CellCenter(x,z)))return;
 
             var targetOilFactor = 1f + target.Oil * oilSpreadMultiplier;
             var spread = fireSpreadRate * sourceIntensity * Mathf.Max(sourceOilFactor, targetOilFactor) * dt;

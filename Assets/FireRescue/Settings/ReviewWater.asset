@@ -17,7 +17,7 @@ MonoBehaviour:
     MaximumRange: 5.5
     AirLifetime: 1.5
     GroundLifetime: 5
-    SpreadAngle: 5
+    SpreadAngle: 12
     CollisionRadius: 0.06
     ImpactRadius: 0.9
     ArcHeight: 0

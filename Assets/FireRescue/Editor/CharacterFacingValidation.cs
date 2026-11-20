@@ -104,6 +104,30 @@ namespace FireRescue.Editor
             yield return MoveAndFace(input, Vector2.up, cursorLeft, 12);
             for (int i = 0; i < 12; i++) { input.TickCommand(Vector2.right, player.transform.position + Vector3.left * 4, false, false, false, Dt); yield return null; }
             Check(Faces(player.transform, Vector3.left), checks, "Legacy TickCommand retains cursor aim even when tutorial facing is enabled");
+
+            input.SetLocomotionFacingDuringPointerInput(true, cursorWhenStationary: true);
+            yield return MoveAndFace(input, Vector2.up, cursorLeft, 12);
+            cursorLeft = player.transform.position + Vector3.left * 4f;
+            yield return MoveAndFace(input, Vector2.zero, cursorLeft, 1);
+            Check(Faces(player.transform, Vector3.forward) && motor.Velocity.magnitude > .2f, checks,
+                "Releasing movement holds the heading while braking");
+            yield return MoveAndFace(input, Vector2.zero, cursorLeft, 3);
+            float remainingTurn = Vector3.Angle(player.transform.forward, Vector3.left);
+            Check(remainingTurn > 2f && remainingTurn < 85f, checks, "Stationary cursor aim starts a gradual turn without a click");
+            yield return MoveAndFace(input, Vector2.zero, cursorLeft, 10);
+            Check(Faces(player.transform, Vector3.left), checks, "Stationary facing settles toward the cursor");
+
+            Quaternion settled = player.transform.rotation;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 nearCursor = player.transform.position + Vector3.forward * (i % 2 == 0 ? .3f : -.3f);
+                yield return MoveAndFace(input, Vector2.zero, nearCursor, 1);
+            }
+            Check(Quaternion.Angle(settled, player.transform.rotation) < .1f, checks, "Cursor motion near the actor does not flip facing");
+            Vector3 slightlyOff = player.transform.position + Quaternion.AngleAxis(1f, Vector3.up) * player.transform.forward * 4f;
+            yield return MoveAndFace(input, Vector2.zero, slightlyOff, 2);
+            Check(Quaternion.Angle(settled, player.transform.rotation) < .1f, checks, "Small angular cursor changes keep the settled facing");
+
             UnityEngine.Object.Destroy(root);
             UnityEngine.Object.Destroy(cameraObject);
             UnityEngine.Object.Destroy(profile);

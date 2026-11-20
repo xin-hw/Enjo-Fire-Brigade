@@ -1,6 +1,134 @@
-# 炎上消防隊 v0.2.1：開發上下文
+# 炎上消防隊 v0.2.6：開發上下文
 
-更新日期：2026-10-28。專案：`D:\Documents\畢專`。
+更新日期：2026-11-21。專案：`D:\Documents\畢專`。
+
+## 最新本機狀態
+
+第一關已整合透明彈道水滴、分層持續積水與接觸蒸汽，水量由表面傳熱實扣並進蒸發帳。預燃熱不產白蒸汽，薄牆兩側共用火格仍須通過真實遮擋。粉末在新系統中也能瞄準真實表面；油鍋仍由粉末熄滅，遇水保留錯誤反應。
+
+第一關管身由 `PhysXHoseChain` 的原生剛體與關節解算。`PhysXHoseDriver` 讀來源接頭拉力，連接時才判斷管長已用完及持續外拉。角色接頭實際捲回管身後即可換來源。TGS 及 100Hz 物理步進支援長鏈過門。回收中的管尾受阻時會短暫牽制角色向外移動，完整 10 公尺的原關卡回收樣本約 8.9 秒。
+
+本機 Windows／D3D11 玩家版在 `Builds/Local-v0.2.6/FireRescue.exe`，通過軟管、水火及整關救援。先在水階段保護相連逃生水路，交付布丁時剩 17.3 秒，抵達出口外後再等 4.7 秒完成撤離。代理已檢查實際畫面，使用者試玩待驗收。
+
+最新證據在 `Docs/Validation/2026-11-21-physx-hose/README.md` 與 `Docs/WORKLOG.md`。保留原場景、素材、相機、照明、120 秒布丁期限、10 公尺管長和按鍵。整機 GPU 與幀率尚未量測。
+
+## 歷史上下文
+
+以下保留 2026-11-10 當時的規劃與舊狀態，涉及「尚未開工」等描述已由上述最新版取代。
+
+## 目前方向：先討論水火體驗計畫，尚未開工
+
+最新補充：使用者要求寫整串工作指令（非本輪實作），新增「水噴不到流理台上」待重現問題，以及靜止時朝準星。優先修檯面真實命中與朝向，再做獨立水滴／積水試作。詳 Docs/Design/FIRE_WATER_EXECUTION_BRIEF_2026-11-10.md。瞄準不能直接套用命中、忽略流理台碰撞；普通移動仍面向移動方向，使用工具與靜止才朝準星，死亡／暫停鎖定保留。這兩項尚未修復。
+
+使用者明確不接受目前水火呈現；前輪測試PASS不等於美術／使用者驗收。要求先討論並制定計畫，不繼續零碎實作。草案 Docs/Design/WATER_FIRE_WORK_PLAN_2026-11-10.md 已更新為討論稿0.2：使用者選A淺水灘（不淹房間），水滴物理落地累積／合併，碰普通火有白煙／蒸汽；不要單條管狀噴流，改粗而有散布的水滴束（「更閃」暫按更散解讀）。未來有限水量，現在規劃來源→空中→積水→蒸發的同一份水量轉移，不先加UI／限制值。保留馬桶水開路→粉滅鍋策略。只有計畫修改，尚未開始新積水實作；下一個交付是獨立小水測試區，通過行為／視覺停點後才整合第一關，未批准套件或發布。
+
+## 本機最新：火水視覺／接觸物理續修（2026-11-10，未發布）
+
+FlowingFire 根部圓潤化、暖橙邊緣、小熱核與局部向上侵蝕；禁止恢復第一版水平 splitBand（實際圖像橫向斷層）。OilPanFireView 只改既有五舌比例，不新增 authority。
+
+WaterVolumeMesh 補齊 UV 0/1 seam、沿流向 tangent、高光／截面變化；FirstRescueEffects 濕痕用 MPB 漸淡與短接觸弧，碰撞飛濺依法向／切向速度和水量，不增加實際劑量。FlowingWater 用真切平面並正確支援正交視角，不能再以 localUV 向量直接加到世界 normal。依然是一條主水柱＋短命飛濺，不恢復分排玻璃珠。
+
+SprayEmitter 改呼叫 ElementReaction.ApplyBallisticSurfaceImpact，僅推力按法向停止動量＋12%切向摩擦，舊 ApplyBallisticImpact API 保留；水／粉的滅火劑量、殘留、油鍋反應不改。SprayWallOcclusion 多一個真法向 overload，舊呼叫相容。Scene、ReviewWater、FireField、CookingOilIncident、角色Motion五檔SHA同本輪起點。
+
+原專案背景D3D11定點19項＋水回歸65項PASS；入口 FireWaterPolishValidation.BatchRun、PhysicalWaterValidation.BatchRunPolishRegression。證據 Docs/Validation/2026-11-09-fire-water-polish（跨日保留開始日期），各48幀真Unity GIF已看取樣。無Windows／WebGL建置、發布、人工整關或四人效能驗收；舊Builds/Latest不是這版。
+
+## 本機最新：噴槍與斧頭動作打磨（2026-11-01，未發布）
+
+只改 FirefighterCartoonMotion 程序式骨架／工具呈現；不改 FBX、Scene、Animator、輸入、移動速度、斧頭傷害或水管規則。既有 FirefighterToolsView 在本場景已 disabled，ReviewToolVisibility 只管顯隱，Motion 仍唯一姿勢 owner；不要重新啟用舊View。初查「雙寫」假設已由實際場景設定排除。
+
+噴槍改 mount-local 的兩個 wrist 校準向量、手掌方向、約.15s姿勢過渡；行走小幅穩定起伏，真 IsSpraying 驅動支撐／<1cm視覺反作用，停止後回復。上身挺起.06m避免大頭模型把工具擠在頸部；遊戲 Nozzle／Hose Inlet 完全不移動。
+
+斧頭採右手下柄持握、左手平衡（短臂不強求跨軀幹雙手）；蓄力→接觸→隨勢→回收，接觸對齊目前 gameplay .45 fraction，肩胸轉動／頭部反向補償。仍用原 .55s swing／一刀一次／按住連砍。移動基礎步態及足部IK保留，沒有拉伸骨骼。OnDisable還原rest，Initialize補齊spine與持握basis；AutomaticTick屬測試／呈現時鐘開關。
+
+ToolMotionPolishValidation.BatchRun：22項PASS，真D3D11渲染／48幀GIF兩段，證據Docs/Validation/2026-11-01-tool-motion。移動握點最大誤差.01882m，槍口差.00432m，斧柄腕點誤差<.00001m；工具實際單擊／連砍與暫時損傷目標通過，Scene SHA與本輪開始相同。近景review有臨時補光、無IMGUI；不是人工完整關卡／正式手指動畫／四人效能驗收。未建Windows／WebGL或發布，舊玩家版仍不含近期更新。
+
+## 本機最新：牆與門齊高（2026-11-01，未發布）
+
+目前 wall/Visual 使用 Procedural/ConnectedWalls/DoorHeightWall.asset，牆頂1.90m（原.82），牆底.10m，對齊四扇門頂誤差<6mm。DoorHeightWallPolish.BatchApplyAndCheck 由舊 ConnectedWall.asset 衍生，保持XZ／拓樸／上下35mm圓角，不是Transform拉伸；.72m方形分格及米色不變。原full-height碰撞、火水／燒門、02:00／10m不改。不要跑舊ResidentialPolish遷移恢復低牆。
+
+13項定點PASS，363個既有元件序列快照不變，Scene僅一行MeshFilter參照；已看出生玩家可見與門牆齊高的真渲染。高牆靠鏡頭側可能遮擋，未擅加隱藏／透明牆系統。證據Docs/Validation/2026-11-01-door-height-wall，未做Windows重建／發布。
+
+## 本機最新：自然全屋延燒／五秒燒門／火場視覺（2026-11-01，未發布）
+
+本節取代歷史「廚房限定可燃、五秒鋪滿、開局快燒再轉慢」。CookingOilIncident 不再排程首波或覆寫速度，只在 .25 秒點燃油鍋旁一格；已燒過的鍋邊地面仍可被熱源復燃，水打油鍋爆燃／焦黑布丁／粉末滅鍋不改。fastSeconds/fastSpread/slowSpread 僅保留隱藏序列化相容資料，沒有執行效果；舊 FirstWave 計數為 0。
+
+目前場景 1,675 格可燃域涵蓋所有室內地板及門檻半格接縫；牆、家具、戶外仍排除，不是全世界可燃。FireField 相鄰熱傳 .13、fuelFlameGain=.18，整局固定無時間分段。新增 FireSpreadBarrier 快取相鄰邊，依既有 SprayWallOcclusion 阻火，門 StateChanged（破壞或重置）會失效快取，火不穿完整牆門。舊場景新 growth 欄預設 0、無 barrier 保持原行為。
+
+四道有效 BreakableDoor 掛 DoorFireExposure：真正相鄰燃燒地面連續接觸五秒才 BurnDown，共用原碰撞／Broken／View 隱藏。火退或元件停用歸零，斧頭仍三刀提前破門。DoorBurnView 用 MPB 漸進焦黑，不改共享材質；R 重載復原。
+
+FirstRescueEffects 火危險層改單一合併 Mesh，所有活火格都可見，不再被 512 上限截斷；火舌仍上限 512，穩定 hash 稀疏分散，不規則格狀排列。火柱約 .9–1.1m（依強度縮放）、紅外焰／金內核，固定 40 上限的煙／餘燼只讀火場；灰褐焦地採連續世界雜訊，不畫每格圓斑。沒有新 UI／音效／逐格 Light。
+
+NaturalFireSetup.BatchApply 是本輪窄遷移，保護既有 46 個元件／24 個碰撞不變；不要跑舊 Builder 恢復廚房首波。NaturalFireValidation.BatchRun 40 項 PASS，PhysicalWaterValidation.BatchRunNaturalFireRegression 65 項 PASS（獨立新證據路徑，不覆寫10/31）。證據 Docs/Validation/2026-11-01-natural-fire/RESULT.md。無人滅火時 5s=29 格、30s=412 格、60s=1,044 格、120s=1,552 格／四門燒毀；這是加速自動模擬，不是人工通關或精確各幀率承諾。
+
+仍 02:00 布丁交付、10m 管線、白地米牆與原模型。未建 Windows／WebGL、未發布／commit／push，Builds/Latest 及公開 v0.2.1 仍舊；新節奏需玩家整關試玩，不冒稱手感／效能完成。
+
+## 本機最新：相連方形牆／三道新斧破門／02:00（2026-11-01，未發布）
+
+本節取代下方歷史場景的 60 秒與隱藏三門。FirstReview1027 serialized deadlineSeconds=120，FirstReviewMission 預設與其他場景不改；交付正常布丁後照舊停止倒數、NPC 抵達出口才完成。
+
+原戶型 door.001 前門、door.003 廁所門、door.004 廚房後門現啟用，使用既有 BreakableDoor／View，三刀破壞才通行，碰撞註冊 SprayWallOcclusion。原臥室 door.002 保留；door.005 獨立倉庫未要求，不變。不要重跑歷史 Builder 隱藏新門或恢復舊時間。
+
+wall/Visual 改 Art/Procedural/ConnectedWalls 的衍生 Mesh＋ConnectedPlaster。0.72m 方形正面平接，只有整體外緣倒角，不是每格獨立鼓起積木；保留原 full-height wall-Full 碰撞、門洞、白地與米牆。牆只關 receiveShadows 避免自陰影三角紋，仍 cast 地面陰影。Tools/Art/build_connected_walls.py 從本輪 Unity 原牆底輪廓快照生成，原用戶 Blend／Mesh／GUID 不動；衍生可編輯 Blend 在 ArtSource/Procedural/ConnectedWalls。舊概念圖的分離圓角塊樣式已被本節的相連要求取代。
+
+ResidentialPolish20261101.BatchApply 只作窄遷移，有保護序列化快照及 15mm 外框守衛；不得放寬守衛讓錯誤倒角通過。ResidentialPolishValidation.BatchRun 最終 46 項 PASS，包含三門實際揮砍／玩家阻擋與破後跨越、NPC 等門及正門逃出、兩分鐘到期與實際重載；已看離線圖。九份水火／管線 SHA 及 Mission 原始碼不變，詳 Docs/Validation/2026-11-01-connected-walls/RESULT.md。
+
+沒有 Windows／WebGL 重建或發布；Builds/Latest 與公開 v0.2.1 仍舊。這不是整關人工難度、正式破門動畫或 UI 像素驗收，新增三門後的實際節奏仍需使用者試玩。
+
+## 本機最新：流動火舌與危險地面整合（2026-10-31，未發布）
+
+依Docs/Art/FIRE_CASE_STUDY_2026-10-31.md實作。兩個同鏡頭候選中，3D版本像發光圓塊而淘汰；採FireSurface共用14頂點直立火舌＋Resources/FlowingFire.shader，保持Y軸、只朝相機Yaw，向上流動／捲曲／消散，不隨Pitch抬根。首版交叉紙片感已修，保留第一版證據。
+
+FirstRescueEffects只換火呈現，保留稀疏火苗與每個活火格完整危險地面；內部不畫格框、只強調外邊界，固定格子相位／高度差。OilPanFireView用同材質五片鍋口火舌，只讀CookingOilIncident.ExplosionAge作.55秒擴張／回落；沒有新傷害或元素寫入。核心火場、反應、水、管線、Scene與Profile共10份保護SHA對本輪起點相同，Scene無需重新接線。不要跑歷史Builder覆蓋關卡。
+
+FirePresentationValidation.BatchRun最終33項PASS、PhysicalWaterValidation.BatchRunFireRegression重跑65項PASS，退出0；無新錯誤，28條既有Editor警告。水回歸獨立證據路徑fire-presentation/water-regression，保留舊水驗收。實際179個首波燃燒格都有提示、60組稀疏火苗；凍結狀態／根節點時表面2,359像素變化，開／關View水粉及延燒狀態逐值相同。
+
+Docs/Validation/2026-10-31-fire-presentation/RESULT.md含A/B、失敗原因、原視距6與放大3的真Unity 3.2秒GIF。元素反應由既有API定點觸發，不是人工噴槍試玩；無IMGUI。未建Windows／WebGL或發布，Builds/Latest與公開v0.2.1仍舊；沒有黑煙系統、整關人工難度或四人／GPU預算驗收。
+
+## 本機最新：案例研究後的水柱／接觸飛濺（2026-10-31，未發布）
+
+此段取代下方獨立玻璃珠式水滴呈現，不改主／散水的實際水量或彈道。先完成Docs/Art/WATER_CASE_STUDY_2026-10-31.md：Embr官方主水柱可讀性＋PowerWash／Firefighting Simulator官方接觸飛濺觀察，沒有聲稱商業遊戲內部演算法。參考圖僅作分析，不匯入遊戲。
+
+WaterVolumeMesh正常Hybrid只建連續主水柱，取消獨立球／橢圓水珠；次級碰撞樣本改供FirstRescueEffects畫短命.16～.28秒的速度伸長水霧。沿途僅穩定選18%外圍樣本作低對比短細線，舊球形Splash停畫。物理發射器與ElementReaction仍唯一掌管水量／撞擊／滅火／推力，ParticleSystem不另發射或碰撞。
+
+首輪64項PASS但水霧太淡，留first-pass再補強；最終BatchRunCase定點65項PASS、退出0，實際粒子開關渲染差2,893像素。證據Docs/Validation/2026-10-31-case-water-spray/RESULT.md，含近景與原視距（正交6、50°／0°、16:9）兩段實際Unity動態GIF。SprayEmitter、ElementReaction、FireField、PhysicalHoseTube、Scene、ReviewWater對本輪開始6檔SHA不變。
+
+未建Windows／WebGL、未發布／重跑整關難度或多人效能；不要把舊公開v0.2.1／Builds/Latest當成本輪效果。核心仍是簡化水包與主水柱表面，不是完整流體；舊Shader的GrabPass效能界線仍有效。
+
+## 本機最新：水感材質與流動表面（2026-10-31，未發布）
+
+只改FirstRescueEffects／WaterVolumeMesh呈現與Resources/FlowingWater.shader。水採透明密度、Fresnel、順流高光／法線、輕微具名GrabPass折射；同一Shader薄水面有柔化邊界。主水柱仍沿原物理取樣，只改有界粗細Perlin收縮、尾端收細；水滴12邊／7環、關閉實心陰影。PresentationTime只屬View，停用效果不改滅火。
+
+入口PhysicalWaterValidation.BatchRunSurface，證據Docs/Validation/2026-10-31-water-surface；最終59項PASS退出0，真Shader像素隨相位變化而物理位置／水量不變。SprayEmitter、ElementReaction、FireField、PhysicalHoseTube、Scene、ReviewWater共6檔對本輪起點SHA256相同。動態GIF由24張實際RenderTexture編碼，原幀在忽略的Logs/WaterSurfaceFrames。
+
+這是Built-in原型Shader，不是完整流體／體積積水；GrabPass有額外螢幕拷貝成本，未測四人／WebGL或正式效能。未重建Windows包或發布；不要把舊v0.2.1下載當成這輪效果。
+
+## 本機最新：中央主水柱＋周圍散水（2026-10-31，未發布）
+
+此段取代下方「一包一散水體」的中央呈現。SprayEmitter每份物理Water發射量拆28%穩定中央主流／72%隨機散水，不加總水量；主流用最高初速，散水保留近中程清路。水包有CoreWater／Burst／AgeSeconds，View只依年齡串起同一burst且連續方向的主流水包，額外接段用Emitter相同碰撞查詢裁切，不能穿牆／跨Burst或瞬間畫滿射程。停噴後不再接噴嘴。外圍水滴縮小／減量，撞擊水花6→3；同一個Mesh內呈現主次。
+
+測試入口PhysicalWaterValidation.BatchRunCore；52項PASS退出0，證據Docs/Validation/2026-10-31-main-water-jet。主水柱牆前停止、主／散水量守恆與滿容量、停噴／重噴分離均通過；兩張實際Unity離線圖已檢視。28條既有Editor警告，無新錯誤。本輪沒有改Scene、Profile、相機或模型；Windows／WebGL包仍未更新，近／遠命中水量分布改變的完整關卡難度未驗收。
+
+## 本機續作 2026-10-31：水流不固定五排（未發布）
+
+使用者要求不直排／不五排。物理Water以每包穩定hash連續取樣初速、水平角與±3°仰角；保持Profile速度上下限、流量及滅火／殘留倍率，落點分布會改變。WaterVolumeMesh取消等距水瓣分段，一水包一不規則體積，尺寸／尾長／截面差異發射後固定，次級水花方向與大小亦不再循環六方向。非物理歷史配方與粉／油分布不改；沒有逐幀亂抖或用全域Random。新驗證入口PhysicalWaterValidation.BatchRunOrganic，證據Docs/Validation/2026-10-31-organic-water；不要覆蓋原physical-water資料夾。Windows下載版仍未更新。
+
+ReviewWater水平SpreadAngle 5°→12°，配合不規則分布，不再正面看仍擠成單線；射程／速度設定與流量不改，水平／垂直角度變化會改變個別落點與分布。水體與碰撞一致，非純視覺偏移。
+
+最終編譯與D3D11定點41項PASS退出0，已檢視第一關及碰撞離線圖；81水包的初速／水平角／大小／尾長量化種類77／78／46／58。28條既有Editor警告，無新錯誤。尚未重跑整關難度／Windows或WebGL建置。
+
+## 本機續作 2026-10-31：立體水體與加厚管線（未發布）
+
+- WaterVolumeMesh 以Emitter真實彈道近期三點生成有封口／法線的受光水束，主體512／次級水珠96上限。次級水珠有120Hz重力、掃掠碰撞及有限反彈，但不二次施加元素；這是遊戲化簡化物理，不是完整液體求解。FirstRescueEffects Hybrid用3D水＋薄霧，原SprayParticleView僅在沒有此水呈現時畫水，粉／油仍保留。
+- ElementReaction.ApplyBallisticImpact 用速度、流量、接觸點推Rigidbody並產生扭矩；原ApplySpray相容。新ParticleSample.TrailStart／TrailMiddle由自身彈道取樣，不以water array鄰居連線。射程、水量、滅火及第一關流程不改。
+- 管線當前Scene半徑.05m、12邊、織物與兩端接頭；還是白色，10m、來源／窗口與自動繞牆權威不改。可見物理管仍128節點；不要重跑歷史Builder覆蓋模型與配置。
+- 背景定點驗證入口PhysicalWaterValidation.BatchRun；BatchApplyAndRun只作半徑.05的窄遷移再跑檢查。證據Docs/Validation/2026-10-31-physical-water。此為本機來源更新，不代表Builds/Latest、Windows Release或瀏覽器版已更新；未經要求不要發布。
+- 最終Unity編譯／D3D11定點33項PASS退出0，四張離線圖已檢視；新水／粉入口的滅火／殘留和舊API一致，水推力速度及重量對照通過。28條既有Editor過時API警告，無新增。未重跑整關或玩家包；不能把這次定點結果宣稱為人工操作／完整流體或四人效能驗收。
+
+## 本機續作 2026-10-29：白色地板／米牆與物理呈現
+
+v0.2.1已公開，後續本段修改尚未發布。六地面材質變白且消光、Warm plaster米色；不碰戶型／原Blend／GUID。PhysicalHoseTube改120Hz固定步，保留HoseConnection唯一長度／拓樸權威。FirstRescueEffects水花依撞擊法向／速度呈現方向與濺起，水色加深；火苗隨Intensity縮小、相位綁格子而非pool槽。FireField.Step新增非有限dt防護，玩法／火勢平衡不改。
+
+使用者已確認本輪恢復必要短檢查：Unity編譯／背景Play Mode定點51項PASS，已看離線圖；證據Docs/Validation/2026-10-29-appearance-physics/RESULT.md。沒有重跑完整關卡、沒有新Windows建置／實際操作或發布，不把v0.2.1的93／40項當成本段證據；Builds/Latest與公開v0.2.1仍是舊包。28條既有Editor過時API警告保留，不要為消警告擴張任務。
 
 ## v0.2.1 最新：文字重開、透明外牆、E統一互動與較長水流
 

@@ -15,6 +15,18 @@ namespace FireRescue
         public bool IsBroken => IsDepleted;
 
         public event Action<BreakableDoor> Broken;
+        public event Action<BreakableDoor> StateChanged;
+
+        /// <summary>
+        /// Burns through the remaining durability in one environmental transition.
+        /// It deliberately reuses the same depleted event and collider teardown as an axe,
+        /// while leaving individual axe damage values unchanged.
+        /// </summary>
+        public bool BurnDown()
+        {
+            if (IsBroken) return false;
+            return ReceiveAxeHit(RemainingDurability);
+        }
 
         /// <summary>Builder-friendly setup for a door whose collider already lives on its gameplay root.</summary>
         public void Initialize(Collider routeBlockingCollider)
@@ -34,12 +46,14 @@ namespace FireRescue
         {
             base.ResetDamageState();
             if (blockingCollider) blockingCollider.enabled = true;
+            StateChanged?.Invoke(this);
         }
 
         protected override void OnDepleted()
         {
             if (blockingCollider) blockingCollider.enabled = false;
             Broken?.Invoke(this);
+            StateChanged?.Invoke(this);
         }
     }
 }

@@ -5,7 +5,8 @@ namespace FireRescue
     [DefaultExecutionOrder(100)]
     public sealed class PickupContextView:MonoBehaviour
     {
-        public const string LimitMessage="管線不夠長了！按 E 拔除管線！";
+        public const string LimitMessage="管線已拉緊，繼續拉扯會脫開。按 E 拔管";
+        const string ReelMessage="水管收回中";
         [SerializeField] PlayerCarryInteraction carry;
         [SerializeField] HoseConnection hose;
         [SerializeField] FirstReviewMission mission;
@@ -41,8 +42,7 @@ namespace FireRescue
                 }
             }
             if(target)target.SetVisible(gold);
-            if(!active||!hose||!hose.IsConnected)IsLengthWarningVisible=false;
-            else IsLengthWarningVisible=IsLengthWarningVisible?hose.UsedLength>=hose.MaximumLength-.2f:hose.IsAtLengthLimit;
+            IsLengthWarningVisible=active&&hose&&hose.IsAtLengthLimit;
         }
         void OnGUI()
         {
@@ -59,11 +59,12 @@ namespace FireRescue
                     GUI.DrawTexture(rect,frame);GUI.Label(rect,"E",keyStyle);
                 }
             }
-            if(IsLengthWarningVisible)
+            bool reeling=(!mission||mission.AllowsInput)&&hose&&hose.IsReeling;
+            if(IsLengthWarningVisible || reeling)
             {
                 float width=Mathf.Min(Screen.width-24,480*scale);var rect=new Rect((Screen.width-width)*.5f,Screen.height-100*scale,width,48*scale);
                 RoundedContextFrame.Draw(rect,10*scale,frame);
-                GUI.Label(rect,LimitMessage,warningStyle);
+                GUI.Label(rect,reeling?ReelMessage:LimitMessage,warningStyle);
             }
         }
         void OnDisable(){if(target)target.SetVisible(null);current=null;target=null;IsLengthWarningVisible=false;}

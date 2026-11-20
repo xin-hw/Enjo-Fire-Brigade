@@ -191,7 +191,7 @@ namespace FireRescue.Editor
             request.Initialize(hand,bedroomDoor,fire,mission);npcLogic.SetEscapeRequirement(request);mission.Initialize(request,manager,fire,tools,npcLogic);
             var carry=player.AddComponent<PlayerCarryInteraction>();var carryAnchor=Child(player.transform,"Carry Anchor");carryAnchor.localPosition=new Vector3(0,.78f,.33f);carry.Initialize(carryAnchor,new[]{item},request,tools,mission);
             var input=player.GetComponent<LocalPlayerInput>();input.Initialize(player.GetComponent<FirefighterMotor>(),hose,emitter,camera.GetComponent<Camera>(),new[]{water.GetComponent<FluidSource>(),powderSource},Array.Empty<RescueNpc>());
-            input.SetTools(tools);input.SetLocomotionFacingDuringPointerInput(true);input.SetMissionInteraction(carry,mission);
+            input.SetTools(tools);input.SetLocomotionFacingDuringPointerInput(true,cursorWhenStationary:true);input.SetMissionInteraction(carry,mission);
             var inputData=new SerializedObject(input);inputData.FindProperty("hoseWindows").arraySize=0;inputData.ApplyModifiedPropertiesWithoutUndo();
             var highlight=player.GetComponentInChildren<SourceHighlightView>(true);highlight.Initialize(input,hose);
             var toolView=visualRoot.GetComponent<FirefighterToolsView>();toolView.enabled=false;

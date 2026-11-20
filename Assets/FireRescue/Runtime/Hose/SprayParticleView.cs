@@ -10,10 +10,12 @@ namespace FireRescue
         ParticleSystem.Particle[] buffer;
         Material material;
         Texture2D texture;
+        FirstRescueEffects waterPresentation;
         public void Initialize(SprayEmitter value) => emitter = value;
 
         void Awake()
         {
+            waterPresentation=GetComponent<FirstRescueEffects>();
             var root = new GameObject("Directional spray particles"); root.transform.SetParent(transform, false);
             particles = root.AddComponent<ParticleSystem>();
             particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
@@ -41,20 +43,24 @@ namespace FireRescue
         {
             if (!particles) return;
             int count = emitter && emitter.UsesDirectionalSpray ? emitter.ActiveParticleCount : 0;
+            int written=0;
             for (int i = 0; i < count; i++)
             {
                 var sample = emitter.GetParticle(i);
+                // The first-level 3D renderer owns water. Keep this legacy view for
+                // oil/powder, without drawing a second opaque sprite jet on top.
+                if(sample.Element==ElementKind.Water&&waterPresentation&&waterPresentation.isActiveAndEnabled)continue;
                 bool powder = sample.Element == ElementKind.DryPowder;
                 Color color = sample.Element == ElementKind.Water ? new Color(.22f, .75f, 1f, .92f) :
                     powder ? new Color(1f, .97f, .8f, .68f) : new Color(.9f, .55f, .08f, .95f);
-                buffer[i] = new ParticleSystem.Particle
+                buffer[written++] = new ParticleSystem.Particle
                 {
                     position = sample.Position, velocity = Vector3.zero, startColor = color,
                     startSize = sample.Radius * (powder ? Mathf.Lerp(2f, 4f, sample.NormalizedAge) : 2.2f),
                     startLifetime = 1, remainingLifetime = 1
                 };
             }
-            particles.SetParticles(buffer, count);
+            particles.SetParticles(buffer, written);
         }
         void OnDisable() { if (particles) particles.Clear(); }
         void OnDestroy() { if (material) Destroy(material); if (texture) Destroy(texture); }

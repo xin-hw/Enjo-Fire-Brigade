@@ -90,7 +90,7 @@ namespace FireRescue
         // Explicit edges keep the equip/connect click separate from the next action.
         // No device polling here: local and future remote players can submit the same commands.
         public void TickPointer(Vector3 aimPoint, bool axePressed, bool axeHeld,
-            bool hosePressed, bool hoseHeld, FluidSource nearbySource, float dt)
+            bool hosePressed, bool hoseHeld, FluidSource nearbySource, float dt, bool aimAtSurface = false)
         {
             if (!isActiveAndEnabled || dt <= 0) { Stop(); return; }
             HoseConnection connection = emitter ? emitter.Connection : null;
@@ -118,7 +118,7 @@ namespace FireRescue
                 }
                 StopSwing();
                 axeRepeatArmed = false;
-                if (SelectedTool == Tool.Hose && sprayArmed && hoseHeld) TickSpray(aimPoint, dt);
+                if (SelectedTool == Tool.Hose && sprayArmed && hoseHeld) TickSpray(aimPoint, dt, aimAtSurface);
                 else if (emitter) emitter.Stop();
                 return;
             }
@@ -154,9 +154,9 @@ namespace FireRescue
         public void Stow() { Stop(); SelectedTool = Tool.None; }
         public void EquipHose() { Stop(); SelectedTool = Tool.Hose; }
 
-        void TickSpray(Vector3 aimPoint, float dt)
+        void TickSpray(Vector3 aimPoint, float dt, bool aimAtSurface = false)
         {
-            if (emitter && emitter.isActiveAndEnabled) emitter.Tick(aimPoint,true,dt);
+            if (emitter && emitter.isActiveAndEnabled) emitter.Tick(aimPoint,true,dt,aimAtSurface);
         }
 
         void TickSwing(float dt, bool repeat = true)
@@ -211,7 +211,7 @@ namespace FireRescue
             if (direction.sqrMagnitude < .0001f) return;
             direction.Normalize();
 
-            int count = Physics.SphereCastNonAlloc(origin,axeRadius,direction,axeHits,axeRange,~0,QueryTriggerInteraction.Ignore);
+            int count = Physics.SphereCastNonAlloc(origin,axeRadius,direction,axeHits,axeRange,Physics.DefaultRaycastLayers,QueryTriggerInteraction.Ignore);
             float closest = float.MaxValue;
             RaycastHit closestHit = default;
             bool found = false;

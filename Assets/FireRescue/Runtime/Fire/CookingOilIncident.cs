@@ -9,20 +9,23 @@ namespace FireRescue
         [SerializeField] FireField floor;
         [SerializeField] CarryItem pudding;
         [SerializeField] Vector3 spillStart=new Vector3(-5.05f,.1f,-3.46f);
-        [SerializeField] float fastSeconds=5,fastSpread=.4f,slowSpread=.035f;
-        float age,waterDose;
+        // Retained only so historical scene builders remain serialization-compatible.
+        // Neither the opening schedule nor its spread multipliers run any more.
+        [SerializeField,HideInInspector] float fastSeconds=5,fastSpread=.4f,slowSpread=.035f;
+        float waterDose,seedDelay;
+        bool seeded;
         bool subscribed;
-        int[] waveCells,waveDepth;
-        int waveCount,waveCursor,maxDepth;
+        int[] heatCells;
         float[] coldSeconds;
+        bool[] heated;
         [SerializeField] float potHeatRadius=1.55f,relightDelay=.28f;
-        public int FirstWaveTargetCount=>waveCount;
-        public int FirstWaveProcessedCount=>waveCursor;
+        public int FirstWaveTargetCount=>0;
+        public int FirstWaveProcessedCount=>0;
         public bool AutomaticTick {get;set;}=true;
         public int ExplosionCount {get;private set;}
         public float ExplosionAge {get;private set;}=100;
         public void Initialize(ObjectFire source,FireField field,CarryItem food)
-        {Unsubscribe();pot=source;floor=field;pudding=food;waveCells=null;Subscribe();}
+        {Unsubscribe();pot=source;floor=field;pudding=food;heatCells=null;seeded=false;seedDelay=0;Subscribe();}
         void OnEnable()=>Subscribe();
         void OnDisable()=>Unsubscribe();
         void Subscribe(){if(!subscribed&&pot){pot.OilContactedByWater+=OnWater;subscribed=true;}}
@@ -31,45 +34,32 @@ namespace FireRescue
         public void Tick(float dt)
         {
             if(dt<=0||float.IsNaN(dt)||float.IsInfinity(dt))return;
-            age+=dt;ExplosionAge+=dt;
+            ExplosionAge+=dt;
             if(!floor)return;
-            floor.SetSpreadRate(age<fastSeconds?fastSpread:slowSpread);
-            if(waveCells==null)BuildFirstWave();
+            if(heatCells==null)BuildHeatFootprint();
             if(!pot||!pot.IsBurning)return;
-            // A connected flashover front, scheduled by flood distance rather than a
-            // huge spread multiplier. It reaches all kitchen fuel by the authored deadline.
-            while(waveCursor<waveCount)
+            // Only the spill immediately beside the pot starts the incident. No timed
+            // flood-fill or radial ignition of every kitchen tile.
+            if(!seeded){seedDelay+=dt;if(seedDelay>=.25f){floor.Ignite(spillStart,.7f);seeded=true;}}
+            for(int i=0;i<heatCells.Length;i++)
             {
-                float arrival=.12f+(Mathf.Max(.2f,fastSeconds)-.12f)*waveDepth[waveCursor]/Mathf.Max(1,maxDepth);
-                if(age+.0001f<arrival)break;
-                int cell=waveCells[waveCursor++];floor.Ignite(floor.CellCenter(cell%floor.Width,cell/floor.Width),.95f);
-            }
-            if(age>=fastSeconds)for(int i=0;i<waveCount;i++)
-            {
-                int cell=waveCells[i],x=cell%floor.Width,z=cell/floor.Width;var point=floor.CellCenter(x,z);
-                Vector3 delta=point-pot.transform.position;delta.y=0;if(delta.sqrMagnitude>potHeatRadius*potHeatRadius)continue;
-                if(floor.GetCell(x,z).IsBurning){coldSeconds[i]=0;continue;}
+                int cell=heatCells[i],x=cell%floor.Width,z=cell/floor.Width;var point=floor.CellCenter(x,z);
+                if(!floor.CanTransferHeat(spillStart,point))continue;
+                if(floor.GetCell(x,z).IsBurning){coldSeconds[i]=0;heated[i]=true;continue;}
+                if(!heated[i])continue;
                 coldSeconds[i]+=dt;
                 if(coldSeconds[i]>=relightDelay){floor.IgniteFromHeat(point);coldSeconds[i]=0;}
             }
         }
-        void BuildFirstWave()
+        void BuildHeatFootprint()
         {
-            int size=floor.Width*floor.Height;waveCells=new int[size];waveDepth=new int[size];coldSeconds=new float[size];var visited=new bool[size];
-            waveCount=waveCursor=maxDepth=0;
-            if(!floor.TryGetCell(spillStart,out var start)||floor.GetCell(start.x,start.y).Fuel<=0)return;
-            waveCells[waveCount++]=start.y*floor.Width+start.x;visited[waveCells[0]]=true;
-            for(int i=0;i<waveCount;i++)
+            var list=new System.Collections.Generic.List<int>();
+            for(int z=0;z<floor.Height;z++)for(int x=0;x<floor.Width;x++)
             {
-                int x=waveCells[i]%floor.Width,z=waveCells[i]/floor.Width;
-                Add(x-1,z,waveDepth[i]+1);Add(x+1,z,waveDepth[i]+1);Add(x,z-1,waveDepth[i]+1);Add(x,z+1,waveDepth[i]+1);
+                var d=floor.CellCenter(x,z)-spillStart;d.y=0;
+                if(d.sqrMagnitude<=potHeatRadius*potHeatRadius&&floor.GetCell(x,z).Fuel>0)list.Add(z*floor.Width+x);
             }
-            void Add(int x,int z,int depth)
-            {
-                if(x<0||z<0||x>=floor.Width||z>=floor.Height)return;int index=z*floor.Width+x;
-                if(visited[index]||floor.GetCell(x,z).Fuel<=0)return;
-                visited[index]=true;waveCells[waveCount]=index;waveDepth[waveCount++]=depth;maxDepth=Mathf.Max(maxDepth,depth);
-            }
+            heatCells=list.ToArray();coldSeconds=new float[heatCells.Length];heated=new bool[heatCells.Length];
         }
         void OnWater(float amount)
         {

@@ -12,20 +12,29 @@ namespace FireRescue
         readonly Vector3[] trial=new Vector3[Capacity];
         int count,trialCount;
         public int Count=>count;
+        public Vector3 LastTrialAnchor(Vector3 start)=>trialCount>0 ? trial[trialCount-1] : start;
         public Vector3 this[int i]=>bends[i];
         public void Clear(){count=trialCount=0;}
+        public void CopyFrom(HoseWrapPath other)
+        {
+            count=other.count;
+            trialCount=0;
+            for(int i=0;i<count;i++) bends[i]=other.bends[i];
+        }
         public void Commit(){count=trialCount;for(int i=0;i<count;i++)bends[i]=trial[i];}
         public float TrialLength(Vector3 start,Vector3 end)
         {float length=0;for(int i=0;i<trialCount;i++){length+=Planar(start,trial[i]);start=trial[i];}return length+Planar(start,end);}
-        public bool Build(SprayWallOcclusion geometry,Vector3 start,Vector3 previousEnd,Vector3 end)
+        public float TrialLength3D(Vector3 start,Vector3 end)
+        {float length=0;for(int i=0;i<trialCount;i++){length+=Vector3.Distance(start,trial[i]);start=trial[i];}return length+Vector3.Distance(start,end);}
+        public bool Build(SprayWallOcclusion geometry,Vector3 start,Vector3 previousEnd,Vector3 end,FluidSource source=null)
         {
             trialCount=count;for(int i=0;i<count;i++)trial[i]=bends[i];
-            Simplify(geometry,start,end);
+            Simplify(geometry,start,end,source);
             Vector3 anchor=trialCount>0?trial[trialCount-1]:start;
-            if(geometry.CableBlocked(anchor,end,Radius))
+            if(geometry.CableBlocked(anchor,end,Radius,source))
             {
                 if(trialCount==Capacity || Planar(anchor,previousEnd)<.015f ||
-                    geometry.CableBlocked(anchor,previousEnd,Radius)||geometry.CableBlocked(previousEnd,end,Radius))return false;
+                    geometry.CableBlocked(anchor,previousEnd,Radius,source)||geometry.CableBlocked(previousEnd,end,Radius,source))return false;
                 // Only record swept endpoint history, never jump to a different doorway.
                 trial[trialCount++]=previousEnd;
             }
@@ -38,22 +47,34 @@ namespace FireRescue
                 for(int j=0;j<7;j++)
                 {
                     float middle=(lo+hi)*.5f;Vector3 p=Vector3.Lerp(b,target,middle);
-                    if(!geometry.CableBlocked(a,p,Radius)&&!geometry.CableBlocked(p,c,Radius)&&
-                        !geometry.CableBlocked(b,p,Radius)&&geometry.CableSweepClear(a,b,p)&&geometry.CableSweepClear(b,c,p))lo=middle;else hi=middle;
+                    if(!geometry.CableBlocked(a,p,Radius,source)&&!geometry.CableBlocked(p,c,Radius,source)&&
+                        !geometry.CableBlocked(b,p,Radius,source)&&geometry.CableSweepClear(a,b,p,source)&&geometry.CableSweepClear(b,c,p,source))lo=middle;else hi=middle;
                 }
                 trial[i]=Vector3.Lerp(b,target,lo);
             }
-            Simplify(geometry,start,end);
+            Simplify(geometry,start,end,source);
             anchor=start;
-            for(int i=0;i<trialCount;i++){if(geometry.CableBlocked(anchor,trial[i],Radius))return false;anchor=trial[i];}
-            return !geometry.CableBlocked(anchor,end,Radius);
+            for(int i=0;i<trialCount;i++){if(geometry.CableBlocked(anchor,trial[i],Radius,source))return false;anchor=trial[i];}
+            return !geometry.CableBlocked(anchor,end,Radius,source);
         }
-        void Simplify(SprayWallOcclusion geometry,Vector3 start,Vector3 end)
+
+        // Surviving contacts already run from the detached coupling to the inlet.
+        // Preserve their order when updating the moving player's end of the route.
+        public bool BuildFromInlet(SprayWallOcclusion geometry,Vector3 inlet,Vector3 freeEnd,Vector3 nextInlet,FluidSource source)
+            => Build(geometry,freeEnd,inlet,nextInlet,source);
+
+        public void ConsumeFirstBend()
+        {
+            if(count==0)return;
+            count--;
+            System.Array.Copy(bends,1,bends,0,count);
+        }
+        void Simplify(SprayWallOcclusion geometry,Vector3 start,Vector3 end,FluidSource source)
         {
             for(int i=trialCount-1;i>=0;i--)
             {
                 Vector3 a=i==0?start:trial[i-1],b=trial[i],c=i+1==trialCount?end:trial[i+1];
-                if(geometry.CableBlocked(a,c,Radius)||!geometry.CableSweepClear(a,b,c))continue;
+                if(geometry.CableBlocked(a,c,Radius,source)||!geometry.CableSweepClear(a,b,c,source))continue;
                 for(int j=i;j<trialCount-1;j++)trial[j]=trial[j+1];trialCount--;
             }
         }

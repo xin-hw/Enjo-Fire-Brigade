@@ -16,11 +16,16 @@ namespace FireRescue
         // Opt-in for the tutorial: locomotion owns facing except while an actual tool action is active.
         // False preserves existing point-aim scenes and scripted command callers.
         [SerializeField] bool faceMovementWhenIdle;
+        [SerializeField] bool faceCursorWhenStationary;
         [SerializeField] PlayerCarryInteraction carry;
         [SerializeField] FirstReviewMission mission;
         public void SetMissionInteraction(PlayerCarryInteraction interaction, FirstReviewMission state)
         {carry=interaction;mission=state;}
         const float MinimumAimDistance = .75f;
+        const float CursorFacingDeadZone = .55f;
+        const float IdleFacingDeadAngle = 2f;
+        const float CoastSpeed = .2f;
+        const int AimMask = Physics.DefaultRaycastLayers & ~((1 << 9) | (1 << 11));
         bool inputFocused = true;
         bool applicationPaused;
 
@@ -28,9 +33,10 @@ namespace FireRescue
         public bool ReadDevices { get; set; } = true;
         public FluidSource NearbySource { get; private set; }
 
-        public void SetLocomotionFacingDuringPointerInput(bool enabled)
+        public void SetLocomotionFacingDuringPointerInput(bool enabled, bool cursorWhenStationary = false)
         {
             faceMovementWhenIdle = enabled;
+            faceCursorWhenStationary = cursorWhenStationary;
         }
 
         // The survivors argument is retained for existing scene builders; NPCs now own their escape without input.
@@ -66,31 +72,38 @@ namespace FireRescue
             if(carry)carry.RefreshNearby();
             Vector2 input = new Vector2((Input.GetKey(KeyCode.D) ? 1 : 0) - (Input.GetKey(KeyCode.A) ? 1 : 0),
                 (Input.GetKey(KeyCode.W) ? 1 : 0) - (Input.GetKey(KeyCode.S) ? 1 : 0));
-            // Ground targeting makes spraying at burning floor patches easy in the angled view.
-            Vector3 target = transform.position + transform.forward * 4;
-            if (view)
-            {
-                target = ResolveAimPoint(Input.mousePosition);
-            }
             if (tools)
-                TickPointerCommand(input,target,Input.GetKeyDown(KeyCode.E),false,
+                TickScreenPointerCommand(input,Input.mousePosition,Input.GetKeyDown(KeyCode.E),
                     Input.GetMouseButtonDown(0),Input.GetMouseButton(0),
                     Input.GetMouseButtonDown(1),Input.GetMouseButton(1),Time.deltaTime);
             else
-                TickCommand(input,target,Input.GetKeyDown(KeyCode.E),false,
+                TickCommand(input,ResolveAimPoint(Input.mousePosition),Input.GetKeyDown(KeyCode.E),false,
                     Input.GetMouseButton(0),Time.deltaTime);
         }
 
-        // Directional mode projects the cursor onto nozzle height for a screen-readable heading.
-        // It never snaps to a receiver or uses cursor distance to control the trajectory.
-        // Historical scenes retain their ground/raised-target point aim.
+        // The visible surface is a sighting reference for ballistic water. Only a later
+        // flight collision can apply an element or create a contact effect.
+        public void TickScreenPointerCommand(Vector2 movement, Vector2 screenPoint, bool interact,
+            bool axePressed, bool axeHeld, bool hosePressed, bool hoseHeld, float dt)
+        {
+            // Keep the same cursor reference before and during spray so pressing the
+            // button does not switch the resting hose from plane aim to surface aim.
+            bool hoseAim = hoseHeld || (faceCursorWhenStationary && tools && tools.SelectedTool == FirefighterTools.Tool.Hose);
+            Vector3? surfaceAim = hoseAim && view && emitter && emitter.UsesSurfaceAim &&
+                Physics.Raycast(view.ScreenPointToRay(screenPoint), out var hit, 100f, AimMask, QueryTriggerInteraction.Ignore)
+                ? hit.point : null;
+            TickPointerCommand(movement, surfaceAim ?? ResolveAimPoint(screenPoint), interact, false,
+                axePressed, axeHeld, hosePressed, hoseHeld, dt, surfaceAim.HasValue);
+        }
+
+        // Fallback directional heading and historical point aim.
         public Vector3 ResolveAimPoint(Vector2 screenPoint)
         {
             Vector3 target = transform.position + transform.forward * 4;
             if (!view) return target;
             Ray ray = view.ScreenPointToRay(screenPoint);
             if ((!emitter || !emitter.UsesDirectionalSpray) &&
-                Physics.Raycast(ray, out RaycastHit hit, 100f, ~((1 << 9) | (1 << 11)), QueryTriggerInteraction.Ignore))
+                Physics.Raycast(ray, out RaycastHit hit, 100f, AimMask, QueryTriggerInteraction.Ignore))
             {
                 var receiver = hit.collider.GetComponentInParent<ElementReceiver>();
                 if (receiver && receiver.isActiveAndEnabled) return hit.point;
@@ -145,7 +158,7 @@ namespace FireRescue
 
         // Current tutorial pointer contract: equip, then connect/act on separate presses.
         public void TickPointerCommand(Vector2 movement, Vector3 aimPoint, bool interact, bool calm,
-            bool axePressed, bool axeHeld, bool hosePressed, bool hoseHeld, float dt)
+            bool axePressed, bool axeHeld, bool hosePressed, bool hoseHeld, float dt, bool aimAtSurface = false)
         {
             if (!isActiveAndEnabled || !inputFocused || applicationPaused || dt <= 0 || (mission && !mission.AllowsInput))
             {
@@ -167,8 +180,8 @@ namespace FireRescue
             // Establish action heading before the first axe trace or spray packet is produced.
             bool actionAiming = tools && tools.WillPointerAimAtCursor(axePressed, axeHeld, hosePressed, hoseHeld);
             RunCommand(movement, ref aimPoint, false, hoseHeld, dt, true, actionAiming);
-            if (tools) tools.TickPointer(aimPoint, axePressed, axeHeld, hosePressed, hoseHeld, NearbySource, dt);
-            else if (emitter && emitter.isActiveAndEnabled) emitter.Tick(aimPoint, hoseHeld, dt);
+            if (tools) tools.TickPointer(aimPoint, axePressed, axeHeld, hosePressed, hoseHeld, NearbySource, dt, aimAtSurface);
+            else if (emitter && emitter.isActiveAndEnabled) emitter.Tick(aimPoint, hoseHeld, dt, aimAtSurface);
         }
 
         bool InteractContext()
@@ -194,8 +207,11 @@ namespace FireRescue
         void RunCommand(Vector2 movement, ref Vector3 aimPoint, bool interact, bool sprayHeld, float dt,
             bool isPointerCommand = false, bool pointerActionAiming = false)
         {
+            if (hose && hose.Physical) hose.Physical.SetInputAvailable(true);
             Vector3 planarAim = aimPoint - transform.position;
             planarAim.y = 0;
+            bool cursorInDeadZone = isPointerCommand && faceMovementWhenIdle && faceCursorWhenStationary &&
+                planarAim.sqrMagnitude < CursorFacingDeadZone * CursorFacingDeadZone;
             if (planarAim.sqrMagnitude < MinimumAimDistance * MinimumAimDistance)
             {
                 float aimHeight = aimPoint.y;
@@ -217,12 +233,24 @@ namespace FireRescue
                 else if (pointerActionAiming)
                 {
                     // Tool gameplay traces transform.forward, so action aim settles before TickPointer.
-                    motor.Face(aimPoint,dt,true);
+                    if (cursorInDeadZone)
+                    {
+                        float aimHeight = aimPoint.y;
+                        aimPoint = transform.position + transform.forward * MinimumAimDistance;
+                        aimPoint.y = aimHeight;
+                    }
+                    else motor.Face(aimPoint,dt,true);
                 }
                 else if (direction.sqrMagnitude > .0001f)
                 {
-                    // No input leaves the previous heading intact and avoids idle jitter.
                     motor.Face(transform.position + direction,dt,false);
+                }
+                else if (faceCursorWhenStationary && !cursorInDeadZone && motor.Velocity.sqrMagnitude <= CoastSpeed * CoastSpeed)
+                {
+                    Vector3 idleAim = aimPoint - transform.position;
+                    idleAim.y = 0;
+                    if (Vector3.Angle(transform.forward, idleAim) > IdleFacingDeadAngle)
+                        motor.Face(aimPoint,dt);
                 }
             }
             if (interact && hose && hose.isActiveAndEnabled)
@@ -236,6 +264,7 @@ namespace FireRescue
         void StopActions()
         {
             NearbySource = null;
+            if (hose && hose.Physical) hose.Physical.SetInputAvailable(false);
             if (tools) tools.Stop();
             if (emitter) emitter.Stop();
         }
