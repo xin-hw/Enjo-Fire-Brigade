@@ -7,19 +7,29 @@ namespace FireRescue
         [SerializeField] ObjectFire fire;
         [SerializeField] CookingOilArea area;
         [SerializeField] CookingOilIncident incident;
+        [SerializeField] Light bounceLight;
         Transform[] flames;
         Transform[] patches;
         Vector3[] patchPositions;
         Material material;
         Mesh mesh;
         float clock;
+        float bounceIntensity;
         public bool AutomaticTick {get;set;}=true;
         public int ActiveTongueCount {get;private set;}
         public float BurstAmount {get;private set;}
         public void Initialize(ObjectFire state)=>fire=state;
         public void SetArea(CookingOilArea value)=>area=value;
         public void SetIncident(CookingOilIncident value)=>incident=value;
-        void Awake()=>EnsurePresentation();
+        void Awake()
+        {
+            if (bounceLight)
+            {
+                bounceIntensity = bounceLight.intensity;
+                bounceLight.enabled = false;
+            }
+            EnsurePresentation();
+        }
         void EnsurePresentation()
         {
             if(flames!=null)return;
@@ -54,6 +64,11 @@ namespace FireRescue
             EnsurePresentation();clock+=Mathf.Min(dt,.1f);
             if(material.HasProperty(FireSurface.Clock))material.SetFloat(FireSurface.Clock,clock);
             float intensity=fire?Mathf.Max(0,fire.Intensity):0;
+            if (bounceLight)
+            {
+                bounceLight.intensity = bounceIntensity * Mathf.Sqrt(Mathf.Clamp01(intensity));
+                bounceLight.enabled = intensity > 0f;
+            }
             float age=incident?incident.ExplosionAge:100;
             BurstAmount=intensity>0&&age>=0&&age<.55f
                 ?Mathf.SmoothStep(0,1,age/.05f)*(1-Mathf.SmoothStep(0,1,(age-.05f)/.5f)):0;
@@ -79,7 +94,7 @@ namespace FireRescue
                 f.localScale=new Vector3(.18f*shape,.4f*Mathf.Sqrt(Mathf.Max(1,intensity))*(1.14f-shape*.14f),.18f*shape);f.rotation=Quaternion.Euler(0,i*31,0);
             }
         }
-        void OnDisable(){ActiveTongueCount=0;BurstAmount=0;clock=0;if(flames!=null)foreach(var f in flames)if(f)f.gameObject.SetActive(false);if(patches!=null)foreach(var f in patches)if(f)f.gameObject.SetActive(false);}
+        void OnDisable(){ActiveTongueCount=0;BurstAmount=0;clock=0;if(bounceLight)bounceLight.enabled=false;if(flames!=null)foreach(var f in flames)if(f)f.gameObject.SetActive(false);if(patches!=null)foreach(var f in patches)if(f)f.gameObject.SetActive(false);}
         void OnDestroy(){if(mesh)Destroy(mesh);if(material)Destroy(material);}
     }
 }

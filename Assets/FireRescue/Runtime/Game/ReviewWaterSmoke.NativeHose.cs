@@ -31,7 +31,7 @@ namespace FireRescue
                         nativePenetration=Mathf.Max(nativePenetration,depth);
                     }
         }
-        IEnumerator VerifyNativeHose(BreakableDoor bathroom)
+        IEnumerator VerifyNativeHose(BreakableDoor bathroom, BreakableDoor exit)
         {
             simulateFire=false;
             nativeChecking=true;
@@ -40,40 +40,46 @@ namespace FireRescue
             var tube=input.GetComponent<PhysicalHoseTube>();
             Time.captureDeltaTime=nativePlayerLoop?Dt:4f*Dt;
             File.AppendAllText(Path.Combine(output,"results.txt"),$"Native hose simulation {(nativePlayerLoop?"Unity player loop":"manual fixed steps")}, timestep {Time.fixedDeltaTime:F3}s.\n");
-            yield return Walk(new Vector3(.45f,.1f,.18f));
+            yield return Walk(new Vector3(2.6f,.1f,-4.94f));
+            yield return Walk(new Vector3(5.44f,.1f,-4.94f));
+            yield return Axe(exit);
+            yield return Walk(new Vector3(.48f,.1f,-4.94f));
+            yield return WalkFromSpawnToBathroom();
             yield return Axe(bathroom);
-            yield return Walk(new Vector3(.45f,.1f,2.65f));
+            yield return Walk(ToiletApproach);
             Step(interact:true);
             Need(hose.IsConnected && driver.IsActive,"The original toilet supplies a native hose through the original E interaction");
             var source=hose.Source;
             yield return Walk(new Vector3(.45f,.1f,.18f));
-            yield return Walk(new Vector3(.6f,.1f,-3.42f));
+            yield return Walk(new Vector3(.6f,.1f,-.30f));
+            yield return Walk(new Vector3(5.44f,.1f,-.30f));
+            yield return Walk(new Vector3(5.44f,.1f,-4.94f));
             Need(hose.IsConnected && hose.BreakCount==0,"The native hose follows the bathroom exit without early detachment");
-            Vector3 aim=new(-4.7f,.1f,-3.42f);
-            for(int i=0;i<420 && !driver.IsTaut;i++)
+            Vector3 aim=new(9f,.1f,-4.94f);
+            for(int i=0;i<420 && hose.IsConnected && !driver.IsTaut;i++)
             {
-                Step(Vector2.left,aim,pressed:i==0,held:true);
+                Step(Vector2.right,aim,pressed:i==0,held:true);
                 if(nativePlayerLoop || i%4==3) yield return null;
             }
             Need(driver.IsTaut && hose.IsConnected && driver.Chain.ReserveLength<.01f,
                 $"Actual source load limits movement at full deployment: {hose.UsedLength:F3}m, {driver.SourceLoad:F1}N at {input.transform.position:F2}");
             for(int i=0;i<10;i++)
             {
-                Step(Vector2.left,aim,held:true);
+                Step(Vector2.right,aim,held:true);
                 if(nativePlayerLoop || i%4==3) yield return null;
             }
             Need(hose.IsConnected,"The initial tug does not detach immediately");
             input.SetInputFocus(false);
             for(int i=0;i<60;i++)
             {
-                Step(Vector2.left,aim,held:true);
+                Step(Vector2.right,aim,held:true);
                 if(nativePlayerLoop || i%4==3) yield return null;
             }
             Need(hose.IsConnected && !driver.IsPulling && !spray.IsSpraying,"Losing input focus clears pull intent and supply emission without detaching");
             input.SetInputFocus(true);
             for(int i=0;i<200 && hose.IsConnected;i++)
             {
-                Step(Vector2.left,aim,pressed:i==0,held:true);
+                Step(Vector2.right,aim,pressed:i==0,held:true);
                 if(i%30==0) File.AppendAllText(Path.Combine(output,"results.txt"),$"MAIN PULL pos={input.transform.position:F3} load={driver.SourceLoad:F1}N fatigue={driver.PullSeconds:F3} tangent={driver.Chain.LastTangent:F3} error={driver.Chain.GripError:F3}\n");
                 if(nativePlayerLoop || i%4==3) yield return null;
             }

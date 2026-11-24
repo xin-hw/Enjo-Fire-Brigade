@@ -7,28 +7,26 @@ Shader "FireRescue/WaterLab"
         _Grid ("Grid size and inverse size", Vector) = (1,1,1,1)
         [HideInInspector] _WaterTime ("Elapsed simulation time", Float) = 0
         [HideInInspector] _RippleActive ("Recent surface contact", Float) = 0
+        [HideInInspector] _ColorBlocks ("Opaque color blocks", Float) = 0
+        [HideInInspector] _PaintedDetail ("Painted water details", Float) = 0
     }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
         GrabPass { "_FireRescueClearWaterScene" }
-        Pass
-        {
-            Blend SrcAlpha OneMinusSrcAlpha
-            ZWrite Off
-            Cull Off
-            CGPROGRAM
-            #pragma target 3.0
-            #pragma vertex vert
-            #pragma fragment frag
+        CGINCLUDE
             #include "UnityCG.cginc"
 
             sampler2D _WaterData;
             sampler2D _FireRescueClearWaterScene;
             float4 _FireRescueClearWaterScene_TexelSize;
             float4 _Grid;
-            float _Surface, _WaterTime, _RippleActive;
+            float _Surface, _WaterTime, _RippleActive, _ColorBlocks, _PaintedDetail;
             float4 _Ripples[8];
+            static const float3 WaterLight = float3(.86,.96,.97);
+            static const float3 WaterShallow = float3(.58,.83,.90);
+            static const float3 WaterBody = float3(.41,.73,.83);
+            static const float3 WaterShade = float3(.32,.63,.76);
 
             struct Vertex
             {
@@ -82,6 +80,25 @@ Shader "FireRescue/WaterLab"
                 return dot(bent - behind,luminance);
             }
 
+            float3 standingWaterDetail(float3 fill, float2 world, float waterline, float2 slope,
+                float broad, float strongestCrest)
+            {
+                float facing = dot(slope, float2(.8,.6)) / max(.06, length(slope));
+                float bank = step(.021, waterline) * (1 - step(.075, waterline));
+                fill = lerp(fill, WaterShade * .90, bank * step(.31, -facing) * .66);
+                fill = lerp(fill, float3(.68,.875,.92), bank * step(.26, facing) * step(.33, broad));
+
+                float2 stroke = float2(dot(world, float2(.88,.48)), dot(world, float2(-.48,.88)));
+                float curl = sin(stroke.y * 13.2 + sin(stroke.x * 4.8) * .52);
+                float broken = noise(stroke * float2(3.6,3.4));
+                float reflection = smoothstep(.83,.96,curl) * smoothstep(.46,.64,broken) * step(.105, waterline);
+                fill = lerp(fill, float3(.67,.85,.91), reflection * .83);
+
+                // Use the strongest nearby impact wave so overlapping hits keep separated arcs.
+                fill = lerp(fill, WaterShallow, smoothstep(.16,.25,strongestCrest));
+                return lerp(fill, WaterLight, smoothstep(.31,.50,strongestCrest));
+            }
+
             fixed4 film(Fragment i)
             {
                 float2 cell = (floor(min(i.uv, .99999) * _Grid.xy) + .5) * _Grid.zw;
@@ -109,6 +126,7 @@ Shader "FireRescue/WaterLab"
                 float edgeShadow = rim * smoothstep(.02,.24,-facing);
 
                 float ring = 0;
+                float strongestCrest = 0;
                 if (_RippleActive > .5)
                 {
                     [unroll] for (int j = 0; j < 8; j++)
@@ -121,13 +139,27 @@ Shader "FireRescue/WaterLab"
                             * lerp(.30,1,smoothstep(-.45,.7,angle + (broad - .5) * .45));
                         float shape = (1 - smoothstep(.010,.033,abs(crest)))
                             - .50 * (1 - smoothstep(.008,.026,abs(crest + .034)));
-                        ring += shape * envelope * _Ripples[j].w;
+                        float crestStrength = shape * envelope * _Ripples[j].w;
+                        ring += crestStrength;
+                        strongestCrest = max(strongestCrest, crestStrength);
                     }
                 }
 
                 ring = clamp(ring,-.24,.72);
                 float sheen = smoothstep(.59,.86,noise(float2(p.x * 4 + p.y * 1.7, p.y * 15 - p.x * 3.8)))
                     * smoothstep(.16,.60,depth) * .048;
+                if (_ColorBlocks > .5)
+                {
+                    clip(coverage - .46);
+                    // Thickness from the water simulation sets the colour regions.
+                    float3 blocks = lerp(WaterShallow, WaterBody, step(.21, depth));
+                    blocks = lerp(blocks, WaterShade, step(.46, depth));
+                    if (_PaintedDetail > .5)
+                        return fixed4(standingWaterDetail(blocks, p, waterline, slope, broad, strongestCrest), 1);
+                    float glint = max(step(.032, sheen), step(.18, ring));
+                    return fixed4(lerp(blocks, WaterLight, glint), 1);
+                }
+
                 float sceneLevel;
                 float lens = clamp(refractionDifference(i, slope * 6.5 + ring * float2(1.8,-1.3), sceneLevel),-.20,.20);
                 float reflection = .016 + depth * .061 + edgeShadow * .10;
@@ -155,6 +187,23 @@ Shader "FireRescue/WaterLab"
                 float shoulder = .62 + .38 * cos(p.y * 5.6 + phase);
                 float glint = exp(-pow((across + .47) * 4.6, 2)) * shoulder;
                 float spark = exp(-pow((across + .25) * 6, 2) - pow((p.y - .38 - shape * .28) * 3.4, 2));
+                if (_ColorBlocks > .5)
+                {
+                    clip(silhouette - .40);
+                    float3 blocks = lerp(WaterBody, WaterShade, step(.48, across));
+                    if (_PaintedDetail > .5)
+                    {
+                        float crescent = across + .35 - .12 * sin(p.y * 3.1 + phase);
+                        float taper = smoothstep(-.65,-.34,p.y) * (1 - smoothstep(.48,.84,p.y));
+                        float band = (1 - smoothstep(.12,.27,abs(crescent))) * taper;
+                        blocks = lerp(blocks, WaterShallow, smoothstep(.23,.66,band));
+                        float white = smoothstep(.52,.80,glint * taper + .22 * spark);
+                        return fixed4(lerp(blocks, WaterLight, white * lerp(.75, 1, i.color.g)), 1);
+                    }
+                    blocks = lerp(blocks, WaterShallow, step(.30, glint));
+                    return fixed4(lerp(blocks, WaterLight, step(.62, glint + .24 * spark)), 1);
+                }
+
                 float sceneLevel;
                 float lens = clamp(refractionDifference(i, float2(across, p.y * .58) * (1 + sideRim * 2.2), sceneLevel),-.34,.34);
                 float darkness = .106 + sideRim * .24 + smoothstep(.02,1,across) * .075;
@@ -167,6 +216,35 @@ Shader "FireRescue/WaterLab"
             {
                 if (_Surface > .5) return film(i);
                 return drop(i);
+            }
+        ENDCG
+
+        Pass
+        {
+            Blend SrcAlpha OneMinusSrcAlpha
+            ZWrite [_ColorBlocks]
+            Cull Off
+            CGPROGRAM
+            #pragma target 3.0
+            #pragma vertex vert
+            #pragma fragment frag
+            ENDCG
+        }
+        Pass
+        {
+            Name "OUTLINE_MASK"
+            Tags { "LightMode"="FireRescueOutline" }
+            Cull Off
+            ZWrite On
+            CGPROGRAM
+            #pragma target 3.0
+            #pragma vertex vert
+            #pragma fragment maskFragment
+            #include "Assets/FireRescue/Resources/WorldOutlineMask.cginc"
+
+            float4 maskFragment(Fragment input) : SV_Target
+            {
+                return WriteEffectOutlineMask(input.position, frag(input).a, WaterShade);
             }
             ENDCG
         }

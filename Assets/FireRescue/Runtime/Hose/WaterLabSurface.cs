@@ -9,6 +9,8 @@ namespace FireRescue
     sealed class WaterLabSurface : IDisposable
     {
         const float CellSize = .12f;
+        // The house's floor finish extends 4.5 mm above its shared ground collider.
+        const float FilmHeight = .006f;
         const double RetainedFilm = .018;
         const double BoilingRatePerSquareMetre = .85;
         const int MaxRipples = 8;
@@ -70,7 +72,7 @@ namespace FireRescue
             viewCollider.enabled = false;
             Object.Destroy(viewCollider);
             view.transform.SetParent(parent);
-            view.transform.SetPositionAndRotation(new Vector3(bounds.center.x, bounds.max.y + .004f, bounds.center.z),
+            view.transform.SetPositionAndRotation(new Vector3(bounds.center.x, bounds.max.y + FilmHeight, bounds.center.z),
                 Quaternion.Euler(90f, 0f, 0f));
             view.transform.localScale = new Vector3(bounds.size.x, bounds.size.z, 1f);
             var renderer = view.GetComponent<MeshRenderer>();

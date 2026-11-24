@@ -4,12 +4,14 @@ namespace FireRescue
 {
     public sealed class PlayerCarryInteraction : MonoBehaviour
     {
+        const int FixedObstacles = 1 << 8;
         [SerializeField] Transform carryAnchor;
         [SerializeField] CarryItem[] items;
         [SerializeField] NpcItemRequest recipient;
         [SerializeField] FirefighterTools tools;
         [SerializeField] FirstReviewMission mission;
         [SerializeField] float reach = 1.55f;
+        [SerializeField, Min(0f)] float pickupReach;
         public CarryItem HeldItem { get; private set; }
         public bool IsCarrying => HeldItem;
         public CarryItem NearbyItem { get; private set; }
@@ -20,12 +22,13 @@ namespace FireRescue
         public void RefreshNearby()
         {
             NearbyItem=null;NearbyUnsafeItem=null; if (HeldItem || items==null) return;
-            float best=reach*reach;
+            float radius = pickupReach > 0f ? pickupReach : reach;
+            float best = radius * radius;
             foreach(var item in items)
             {
                 if (!item || !item.isActiveAndEnabled || item.IsHeld || item.IsDelivered) continue;
                 Vector3 d=item.transform.position-transform.position; d.y=0;
-                if(d.sqrMagnitude>=best || !Reachable(item.transform.position)) continue;
+                if (d.sqrMagnitude >= best || !HasClearReach(item.transform.position)) continue;
                 best=d.sqrMagnitude;
                 if(item.IsSafeToTake){NearbyItem=item;NearbyUnsafeItem=null;}
                 else{NearbyUnsafeItem=item;NearbyItem=null;}
@@ -39,7 +42,7 @@ namespace FireRescue
                 if(CanDeliver && recipient.TryAccept(HeldItem)){HeldItem=null; return true;}
                 Vector3 p=transform.position+transform.forward*.6f;
                 // A wall in front must not let E deposit an item in the next room.
-                if(Physics.Linecast(transform.position+Vector3.up*.5f,p+Vector3.up*.5f,1<<8,QueryTriggerInteraction.Ignore)) return false;
+                if(Physics.Linecast(transform.position+Vector3.up*.5f,p+Vector3.up*.5f,FixedObstacles,QueryTriggerInteraction.Ignore)) return false;
                 if(!Physics.Raycast(p+Vector3.up*2,Vector3.down,out var hit,4,1<<0,QueryTriggerInteraction.Ignore)) return false;
                 HeldItem.Drop(hit.point+Vector3.up*.14f);HeldItem=null;return true;
             }
@@ -55,7 +58,10 @@ namespace FireRescue
         bool Reachable(Vector3 target)
         {
             Vector3 delta=target-transform.position;delta.y=0;
-            return delta.sqrMagnitude<=reach*reach && !Physics.Linecast(transform.position+Vector3.up*1.15f,target,1<<8,QueryTriggerInteraction.Ignore);
+            return delta.sqrMagnitude <= reach * reach && HasClearReach(target);
         }
+
+        bool HasClearReach(Vector3 target) => !Physics.Linecast(transform.position + Vector3.up * 1.15f,
+            target, FixedObstacles, QueryTriggerInteraction.Ignore);
     }
 }

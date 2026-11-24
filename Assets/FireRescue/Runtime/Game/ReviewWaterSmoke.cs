@@ -12,6 +12,7 @@ namespace FireRescue
     public sealed partial class ReviewWaterSmoke : MonoBehaviour
     {
         const float Dt = 1f / 60f;
+        static readonly Vector3 ToiletApproach = new(.40f, .1f, 1.40f);
         LocalPlayerInput input;
         FirefighterTools tools;
         HoseConnection hose;
@@ -87,14 +88,21 @@ namespace FireRescue
                 input.GetComponent<PhysicalHoseTube>().AutomaticSimulation=false;
                 Physics.simulationMode=SimulationMode.Script;
             }
+            if (nativePlayerLoop) Need(Physics.simulationMode == SimulationMode.FixedUpdate, "PhysX is stepping in the normal player loop");
             Need(hose.MaximumLength == 10 && mission.Remaining == 120 && !hose.IsConnected &&
                 SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null, "Real level loads at spawn with 10m hose and 120s deadline");
             string expectedVersion = Environment.GetEnvironmentVariable("FIRERESCUE_EXPECTED_VERSION");
             if (!Application.isEditor && !string.IsNullOrEmpty(expectedVersion))
                 Need(Application.version == expectedVersion, $"Local build version is {expectedVersion}");
-            var waterShader = water.GetComponentsInChildren<MeshRenderer>(true)
-                .Select(renderer => renderer.sharedMaterial.shader).FirstOrDefault(shader => shader.name == "FireRescue/WaterLab");
-            Need(waterShader && waterShader.isSupported, "Transparent water shader resolves on the graphics device");
+            var waterMaterial = water.GetComponentsInChildren<MeshRenderer>(true)
+                .Select(renderer => renderer.sharedMaterial).FirstOrDefault(material => material && material.shader.name == "FireRescue/WaterLab");
+            Need(waterMaterial && waterMaterial.shader.isSupported, "Water Lab shader resolves on the graphics device");
+            var airflowFlames = FindAnyObjectByType<FireAirflowFlameView>();
+            Need(view.GetComponent<WorldOutlineView>() && IsPainted(waterMaterial) &&
+                airflowFlames && airflowFlames.GetComponentsInChildren<MeshRenderer>(true).Any(renderer => IsPainted(renderer.sharedMaterial)),
+                "First level has the painted experiment's water, airflow fire and selective outlines");
+            var powder = FindAnyObjectByType<PowderSprayView>();
+            Need(powder && powder.IsDrawing, "The actual dry powder has a supported colour-block renderer");
             var doors = FindObjectsByType<BreakableDoor>().ToDictionary(door => door.name);
             if (Environment.GetCommandLineArgs().Contains("--verify-water-physics"))
             {
@@ -116,7 +124,7 @@ namespace FireRescue
             }
             if (Environment.GetCommandLineArgs().Contains("--verify-hose"))
             {
-                if(hose.Physical) yield return VerifyNativeHose(doors["door.003"]);
+                if(hose.Physical) yield return VerifyNativeHose(doors["door.003"], doors["door.001"]);
                 else
                 {
                     yield return VerifyHose(doors["door.003"]);
@@ -125,9 +133,14 @@ namespace FireRescue
                 Finish();
                 yield break;
             }
-            yield return Walk(new Vector3(.45f, .1f, .18f));
+            Vector3 cameraPosition = view.transform.position;
+            Quaternion cameraRotation = view.transform.rotation;
+            float puddingSize = pudding.transform.lossyScale.magnitude;
+            if (captureEvidence) Capture("layout");
+            yield return WalkFromSpawnToBathroom();
+            Need(CameraStayedFixed(), "The fixed view stays in place across the living room");
             yield return Axe(doors["door.003"]);
-            yield return Walk(new Vector3(.45f, .1f, 2.65f));
+            yield return Walk(ToiletApproach);
             Step(interact: true);
             Need(hose.IsConnected && hose.Source.Element == ElementKind.Water, "Connects to the real toilet with E");
             yield return Walk(new Vector3(.45f, .1f, .18f));
@@ -174,7 +187,8 @@ namespace FireRescue
             yield return Walk(new Vector3(-2.84f,.1f,-1.55f));
             yield return SprayPath(new Vector3(-3.4f,.1f,-1.9f), new Vector3(-4.1f,.1f,-2.2f), 258);
             yield return WalkSafe(new Vector3(-3.5f,.1f,-1.9f));
-            yield return SprayPath(pan.transform.position, pan.transform.position, 330, until: () => !pan.IsBurning);
+            yield return SprayPath(pan.transform.position, pan.transform.position, 330, until: () => !pan.IsBurning,
+                captureLabel: "powder");
             Need(!pan.IsBurning, $"Actual powder extinguishes the oil pan (pan={pan.Intensity:F2})");
             yield return SprayPath(new Vector3(-3.46f,.1f,-3.6f), new Vector3(-4.25f,.1f,-3.9f), 240);
             yield return Walk(new Vector3(-3.52f,.1f,-2.62f));
@@ -213,6 +227,11 @@ namespace FireRescue
             yield return Walk(new Vector3(4.15f,.1f,2.3f));
             Step(interact: true);
             Need(request.IsFulfilled && !request.IsPoisoned, $"Delivers edible pudding before deadline ({mission.Remaining:F1}s remaining)");
+            Need(pudding.IsDelivered && pudding.transform.parent == request.ReceivingHand &&
+                request.ReceivingHand.parent.name == "R_Hand" &&
+                Mathf.Abs(pudding.transform.lossyScale.magnitude - puddingSize) < .01f,
+                "The new resident receives the pudding at the animated hand and keeps its world size");
+            if (captureEvidence) Capture("pudding-received");
             if (!doors["door.001"].IsBroken)
             {
                 yield return Walk(new Vector3(5.28f,.1f,1.65f));
@@ -237,8 +256,17 @@ namespace FireRescue
             Step();
             Need(mission.CurrentStatus == FirstReviewMission.Status.Won && resident.IsRescued &&
                 mission.CompletionCount == 1, $"Resident walks the prepared corridor within 30s, actual wait {evacuationTime:F1}s (NPC {resident.transform.position:F2}, route={resident.HasSafePath}, status={mission.CurrentStatus}/{mission.FailureCause})");
+            Need(CameraStayedFixed(), "The camera position and angle stay fixed through evacuation");
             Need(Math.Abs(water.BalanceError) < .002, $"Water ledger closes after full rescue (error {water.BalanceError:F7})");
             Finish();
+
+            bool CameraStayedFixed() =>
+                (view.transform.position - cameraPosition).sqrMagnitude < .000001f &&
+                Quaternion.Angle(view.transform.rotation, cameraRotation) < .01f;
+
+            static bool IsPainted(Material material) =>
+                material && material.HasProperty("_PaintedDetail") && material.GetFloat("_PaintedDetail") > .5f &&
+                material.GetFloat("_ColorBlocks") > .5f;
         }
 
         IEnumerator WetExitCorridor()
@@ -262,9 +290,9 @@ namespace FireRescue
         {
             VerifySurfacePhysicsEdges();
             simulateFire = false;
-            yield return Walk(new Vector3(.45f,.1f,.18f));
+            yield return WalkFromSpawnToBathroom();
             yield return Axe(bathroom);
-            yield return Walk(new Vector3(.45f,.1f,2.65f));
+            yield return Walk(ToiletApproach);
             Step(interact: true);
             Need(hose.IsConnected, "Physics probe connects the original toilet");
             yield return Walk(new Vector3(.45f,.1f,.18f));
@@ -304,10 +332,10 @@ namespace FireRescue
             bool captureFrames = captureEvidence;
             Bounds doorway = bathroom.BlockingCollider.bounds;
             int beforeDoor = water.OpenFloorCellsIn(doorway);
-            yield return Walk(new Vector3(.45f,.1f,.18f));
+            yield return WalkFromSpawnToBathroom();
             yield return Axe(bathroom);
             Need(water.OpenFloorCellsIn(doorway) > beforeDoor, "The real broken doorway reopens floor water cells");
-            yield return Walk(new Vector3(.45f,.1f,2.65f));
+            yield return Walk(ToiletApproach);
             Step(interact: true);
             Need(hose.IsConnected, "Visual sample connects the original toilet");
             yield return Walk(new Vector3(.45f,.1f,.18f));
@@ -332,8 +360,12 @@ namespace FireRescue
             int originalFire = field.BurningCount;
             Need(originalFire >= 8, "Isolated ordinary fire uses the scene's real burning cells");
             yield return null;
-            var fireBed = GameObject.Find("Ground Fire Glow").GetComponent<Renderer>();
-            Need(fireBed.enabled, "The burning floor renderer is active before any water reaches it");
+            var groundAsh = GameObject.Find("Ground Ash").GetComponent<Renderer>();
+            var waterFilm = GameObject.Find("Ground water film").GetComponent<Renderer>();
+            Need(groundAsh.enabled, "The ash renderer uses the live burning footprint");
+            Need(groundAsh.transform.position.y < waterFilm.transform.position.y &&
+                groundAsh.sharedMaterial.renderQueue < waterFilm.sharedMaterial.renderQueue,
+                "The real floor water is both above and drawn after the ash");
             if (captureFrames) Capture("fire-bed");
 
             yield return Record("02-fire", 260, (tick) =>
@@ -343,7 +375,7 @@ namespace FireRescue
             }, holdAfter: 32);
             Need(water.Evaporated > 0d && steam.EmittedCount > 0 && field.BurningCount == 0,
                 "Direct contact produces steam and extinguishes the isolated floor fire");
-            Need(!fireBed.enabled && water.FloorVolume > .5d, "Extinguished area shows the remaining water only");
+            Need(!groundAsh.enabled && water.FloorVolume > .5d, "Extinguished area shows the remaining water only");
 
             Vector3 top = new(-5.644f,.95f,-4.415f);
             yield return Walk(new Vector3(-3.19f,.1f,-4.35f), tolerance: .19f);
@@ -356,6 +388,32 @@ namespace FireRescue
             Need(water.CounterVolume > .4d && pan.WaterApplied == 0f, "Aimed spray pools on the actual counter top");
             Need(water.FloorVolumeUnderCounter == 0d, "The true cabinet footprint stays dry after the counter sweep");
             Need(Math.Abs(water.BalanceError) < .002, $"Visual sequence water ledger closes ({water.BalanceError:F7})");
+
+            if (captureFrames)
+            {
+                // Capture the same view with each layer visible independently.
+                // Re-ignite part of the footprint of the actual cold spray and leave the water frozen.
+                Vector3 overlap = cold + Vector3.right * .16f;
+                for (int z = -2; z <= 2; z++)
+                    for (int x = -3; x <= 2; x++)
+                        field.IgniteFromHeat(overlap + new Vector3(x, 0f, z) * field.CellSize, .65f);
+                yield return null;
+                Capture("ash-on-water");
+                try
+                {
+                    groundAsh.enabled = false;
+                    Capture("water-only");
+                    waterFilm.enabled = false;
+                    Capture("no-ash-or-water");
+                    groundAsh.enabled = true;
+                    Capture("ash-only");
+                }
+                finally
+                {
+                    groundAsh.enabled = true;
+                    waterFilm.enabled = true;
+                }
+            }
 
             IEnumerator Record(string label, int steps, Action<int> command, int holdAfter)
             {
@@ -440,9 +498,9 @@ namespace FireRescue
             model.layer=30;
             Physics.SyncTransforms();
             int visualWallHits=0;
-            yield return Walk(new Vector3(.45f,.1f,.18f));
+            yield return WalkFromSpawnToBathroom();
             yield return Axe(bathroom);
-            yield return Walk(new Vector3(.45f,.1f,2.65f));
+            yield return Walk(ToiletApproach);
             Step(interact: true);
             Need(hose.IsConnected && hose.BreakUnderTension, "Original toilet connects with tension break enabled");
             var source = hose.Source;
@@ -564,7 +622,7 @@ namespace FireRescue
             yield return Walk(new Vector3(-1.10f,.1f,-3.42f));
             yield return Walk(new Vector3(.60f,.1f,-3.42f));
             yield return Walk(new Vector3(.45f,.1f,.18f));
-            yield return Walk(new Vector3(.45f,.1f,2.65f));
+            yield return Walk(ToiletApproach);
             Step(interact:true);
             tube.TickPresentation(Dt);
             Need(hose.Source==source && tube.IsVisible && !tube.IsReeling && !hose.IsPullingTaut,
@@ -665,6 +723,13 @@ namespace FireRescue
             }
         }
 
+        IEnumerator WalkFromSpawnToBathroom()
+        {
+            // Pass the west end of the center sofa before turning toward the bathroom.
+            yield return Walk(new Vector3(.48f, .1f, -3.70f));
+            yield return Walk(new Vector3(.45f, .1f, .18f));
+        }
+
         IEnumerator Walk(Vector3 target, float tolerance = .085f)
         {
             for (int i = 0; i < 420 && mission.AllowsInput; i++)
@@ -759,7 +824,7 @@ namespace FireRescue
             Need(door.IsBroken, $"Actual axe swing opens {door.name} (last hit {tools.LastHit.collider?.name ?? "none"})");
         }
 
-        IEnumerator SprayPath(Vector3 from, Vector3 to, int ticks, Func<bool> until = null)
+        IEnumerator SprayPath(Vector3 from, Vector3 to, int ticks, Func<bool> until = null, string captureLabel = null)
         {
             if (tools.SelectedTool != FirefighterTools.Tool.Hose)
             {
@@ -769,13 +834,15 @@ namespace FireRescue
             float emittedBefore = spray.TotalEmittedAmount;
             bool expectsEmission = ticks > 0 && !(until?.Invoke() ?? false);
             if (expectsEmission) Need(hose.IsConnected, "Requested spray has a connected physical supply");
+            int sample = 0;
+            if (captureEvidence && captureLabel != null) Capture($"{captureLabel}-{sample++:D3}");
             for (int i = 0; i < ticks && !(until?.Invoke() ?? false); i++)
             {
                 Step(aim: Vector3.Lerp(from, to, i / (float)(ticks - 1)), pressed: i == 0, held: true);
                 if (i % 4 != 3) continue;
                 water.RefreshView();
                 yield return null;
-                if (i % 8 == 3 && frames < 180 && captureEvidence) Capture();
+                RecordFrame(i);
             }
             for (int i = 0; i < 44; i++)
             {
@@ -783,9 +850,16 @@ namespace FireRescue
                 if (i % 4 != 3) continue;
                 water.RefreshView();
                 yield return null;
-                if (i % 8 == 3 && frames < 180 && captureEvidence) Capture();
+                RecordFrame(i);
             }
             if (expectsEmission) Need(spray.TotalEmittedAmount > emittedBefore, "Requested spray emits real packets");
+
+            void RecordFrame(int tick)
+            {
+                if (!captureEvidence) return;
+                if (captureLabel != null) Capture($"{captureLabel}-{sample++:D3}");
+                else if (tick % 8 == 3 && frames < 180) Capture();
+            }
         }
 
         void Capture(string name = null)

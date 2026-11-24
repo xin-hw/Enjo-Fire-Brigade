@@ -6,6 +6,7 @@ namespace FireRescue
     public sealed class SprayParticleView : MonoBehaviour
     {
         [SerializeField] SprayEmitter emitter;
+        [SerializeField] PowderSprayView paintedPowder;
         ParticleSystem particles;
         ParticleSystem.Particle[] buffer;
         Material material;
@@ -51,6 +52,7 @@ namespace FireRescue
                 // oil/powder, without drawing a second opaque sprite jet on top.
                 if(sample.Element==ElementKind.Water&&waterPresentation&&waterPresentation.isActiveAndEnabled)continue;
                 bool powder = sample.Element == ElementKind.DryPowder;
+                if (powder && paintedPowder && paintedPowder.IsDrawing) continue;
                 Color color = sample.Element == ElementKind.Water ? new Color(.22f, .75f, 1f, .92f) :
                     powder ? new Color(1f, .97f, .8f, .68f) : new Color(.9f, .55f, .08f, .95f);
                 buffer[written++] = new ParticleSystem.Particle

@@ -2,6 +2,11 @@
 
 > 後續每次修改請在此檔案新增一筆版本紀錄，不覆蓋舊紀錄。
 
+## 2026-11-24 — v0.3.1 Windows 試玩版
+
+- 公開比較左側使用 GitHub 已發布的 v0.3 玩家包，右側使用本輪的 v0.3.1 玩家包。兩邊錄製原相機下的噴水、收管與滅火，收管依各版實際脫開時刻對齊。影片畫面沒有另外加字，README 與 Release 使用同一份說明。[兩版對比](Validation/2026-11-24-v031/v030-v031-comparison.gif)
+- v0.3.1 Windows x64 ZIP 以 Unity 6000.5.0b9 建置，解壓後在 D3D11 確認版本，第一關救援、積水與檯面、實體軟管拉脫和回收都通過。ZIP 共 37,139,693 bytes，SHA-256 為 `488afe9b9c2509c3d4b58dd53586015eb697084580c639e393a930207a5af130`。[GitHub Release](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/tag/v0.3.1)
+
 ## 2026-11-21 — v0.3 更新說明
 
 - GitHub 版面先說明噴水的瞄準、碰撞和積水，以及水管改用物理引擎與收管動畫。火、布丁與室內模型列在最後的下版預計改善。[AGENTS.md](../AGENTS.md) 記錄往後撰寫 GitHub 更新說明的守則。

@@ -10,6 +10,21 @@ namespace FireRescue
         public static readonly int Edges = Shader.PropertyToID("_EdgeMask");
         public static readonly int CoreBoost = Shader.PropertyToID("_CoreBoost");
 
+        internal static int CellHash(int value)
+        {
+            // Spread flame samples across the field without row or column patterns.
+            unchecked
+            {
+                uint x = (uint)value;
+                x ^= x >> 16;
+                x *= 0x7feb352d;
+                x ^= x >> 15;
+                x *= 0x846ca68b;
+                x ^= x >> 16;
+                return (int)(x & int.MaxValue);
+            }
+        }
+
         public static Material CreateMaterial()
         {
             var shader = Resources.Load<Shader>("FlowingFire");

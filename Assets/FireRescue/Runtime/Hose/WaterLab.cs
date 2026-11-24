@@ -58,6 +58,7 @@ namespace FireRescue
         Action<Vector3, double, bool> vaporized;
 
         public bool AutomaticTick { get; set; } = true;
+        internal Transform PresentationRoot { get; private set; }
         public double SourceRemaining => source.RemainingWater;
         public double FloorVolume => floorWater.Volume;
         public double CounterVolume => counterWater.Volume;
@@ -121,17 +122,22 @@ namespace FireRescue
 
         void Awake()
         {
+            PresentationRoot = new GameObject("Water presentation").transform;
+            PresentationRoot.SetParent(transform, false);
             Physics.SyncTransforms();
             if (useLevelSurfaces)
             {
                 levelReaction.UsePhysicalWaterDeposits();
                 var steamObject = new GameObject("Water contact steam");
-                steamObject.transform.SetParent(transform, false);
+                steamObject.transform.SetParent(PresentationRoot, false);
                 steam = steamObject.AddComponent<WaterSteamView>();
+            }
+            else source.SetWaterBudget(StartingWater);
+            if (doors != null)
+            {
                 doorFootprints = new Bounds[doors.Length];
                 for (int i = 0; i < doors.Length; i++) doorFootprints[i] = doors[i].BlockingCollider.bounds;
             }
-            else source.SetWaterBudget(StartingWater);
             vaporized = Vaporized;
             emitter.UseDropletBundle = true;
             var settings = source.SpraySettings;
@@ -149,11 +155,11 @@ namespace FireRescue
                 center.y = floor.bounds.max.y;
                 floorArea = new Bounds(center, size);
             }
-            floorWater = new WaterLabSurface(floor, floorArea, shader, transform, barriers, useLevelSurfaces);
-            counterWater = new WaterLabSurface(counter, counter.bounds, shader, transform, barriers, useLevelSurfaces);
+            floorWater = new WaterLabSurface(floor, floorArea, shader, PresentationRoot, barriers, useLevelSurfaces);
+            counterWater = new WaterLabSurface(counter, counter.bounds, shader, PresentationRoot, barriers, useLevelSurfaces);
 
             var drops = new GameObject("Water droplets and splash");
-            drops.transform.SetParent(transform, false);
+            drops.transform.SetParent(PresentationRoot, false);
             dropMesh = new Mesh { name = "Batched water fragments" };
             dropMesh.MarkDynamic();
             drops.AddComponent<MeshFilter>().sharedMesh = dropMesh;
@@ -413,6 +419,7 @@ namespace FireRescue
             if (dropMesh) Destroy(dropMesh);
             if (dropMaterial) Destroy(dropMaterial);
             if (runtimeProfile) Destroy(runtimeProfile);
+            if (PresentationRoot) Destroy(PresentationRoot.gameObject);
         }
     }
 }

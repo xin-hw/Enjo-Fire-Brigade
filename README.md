@@ -1,8 +1,8 @@
-# 炎上消防隊 v0.3
+# 炎上消防隊 v0.3.1
 
 ## 下載方法
 
-[下載 Windows x64 ZIP](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/download/v0.3/FireRescue-v0.3-Windows-x64.zip)，完整解壓縮後執行 `FireRescue.exe`
+[下載 Windows x64 ZIP](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/download/v0.3.1/FireRescue-v0.3.1-Windows-x64.zip)，完整解壓縮後執行 `FireRescue.exe`
 
 ## 操作
 
@@ -15,23 +15,17 @@
 | E | 接管／拔管、拿放／交付布丁 |
 | R | 重新開始 |
 
-## 與 v0.2.1 的差異
+## 與 v0.3 的差異
 
-![兩版第一關實際遊戲對比](Docs/Validation/2026-11-21-v03/v021-v03-comparison.gif)
+![兩版第一關實際遊戲對比](https://raw.githubusercontent.com/xin-hw/Enjo-Fire-Brigade/v0.3.1/Docs/Validation/2026-11-24-v031/v030-v031-comparison.gif)
 
-左邊是 v0.2.1，右邊是 v0.3
+左邊是 v0.3，右邊是 v0.3.1
 
-之前的水是用程式生成五道簡單的水滴效果，滑鼠只能改方向，沒辦法控制噴多遠
-
-這次把水改成透明，現在會往玩家右鍵點的位置噴，水滴打到地板或檯面後會留下積水（之後可能會改成淺藍色，再加一圈外圍描邊）
-
-管子也是，以前是用程式模擬的，走到轉角容易卡住玩家，現在管子已經改用 Unity 物理引擎，也加了收管動畫，拔管或拉脫後會捲回角色身上
-
-場景暫時改成白色地板和米色牆面，這樣比較容易看清楚水和管子的效果
-
-修正了拿出消防斧和消防噴槍時的持握動作
-
-現在角色站著不動時也會看向滑鼠的位置
+- v0.3 的水是透明的，這版改成藍色色塊和深藍描邊，水噴到哪、地上積了多少都比較好看清楚
+- 管子沿用 Unity 物理引擎，空曠的地方收得更快，碰到門角會先放慢
+- 火和地上的灰燼改成卡通色塊，火被牆擋住時只畫一圈細線框，蘇打粉改成奶油色，命中時會揚起粉塵
+- 換了主角、受困者和家具，浴室也重新擺過，第一關改用固定視角，陰影比之前柔和
+- 布丁可以站遠一點按 E 拿
 
 ### 下版預計改善
 

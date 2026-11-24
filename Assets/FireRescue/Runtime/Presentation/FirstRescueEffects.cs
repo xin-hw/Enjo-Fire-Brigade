@@ -34,6 +34,7 @@ namespace FireRescue
         [SerializeField, Range(1, 32)] int splashCapacity = DefaultSplashCapacity;
         [SerializeField, Range(1, 512)] int fireCapacity = DefaultFireCapacity;
         [SerializeField] bool showFire = true;
+        [SerializeField] bool groundHeatOnly;
         [SerializeField] bool spaciousFire;
         [SerializeField] bool useSurfaceWater;
         [SerializeField, Range(1f,3f)] float waterVisualScale=1f;
@@ -345,6 +346,7 @@ namespace FireRescue
             ActiveFireVisualCount=burningCount;
             ActiveHeatMarkCount=burningCount;
             dangerRenderer.enabled=burningCount>0 && heatTexture;
+            if (groundHeatOnly) return;
 
             int flameCount=0;
             int stride=Mathf.Max(1,Mathf.CeilToInt(burningCount/(float)Mathf.Max(1,fires.Length)));
@@ -358,10 +360,10 @@ namespace FireRescue
                     int cellKey=z*field.Width+x;
                     // A stable hash distributes the fixed flame pool through the full fire,
                     // rather than rendering only the first rows of a large room.
-                    bool withinBudget=stride==1||PositiveHash(cellKey)%stride==0;
+                    bool withinBudget=stride==1||FireSurface.CellHash(cellKey)%stride==0;
                     // A broad fire reads as a few threatening columns, not a repeated
                     // checkerboard of identical icons. Isolated cells stay visible.
-                    bool keepForSparse=!spaciousFire || PositiveHash(cellKey+941)%5==0 || !hasNeighbor;
+                    bool keepForSparse=!spaciousFire || FireSurface.CellHash(cellKey+941)%5==0 || !hasNeighbor;
                     if(!withinBudget||!keepForSparse)continue;
                     FireVisual visual = fires[flameCount++];
                     float strength = Mathf.Clamp01(state.Intensity);
@@ -374,7 +376,7 @@ namespace FireRescue
                         visual.CellKey=cellKey;
                     }
                     float response=Mathf.Sqrt(strength);
-                    float variation=.90f+(PositiveHash(cellKey+187)%100)*.002f;
+                    float variation=.90f+(FireSurface.CellHash(cellKey+187)%100)*.002f;
                     // Fewer, taller columns give a large fire a readable, urgent silhouette.
                     float height = (spaciousFire ? 1f : .86f)*response*variation;
                     Vector3 center = field.CellCenter(x, z);
@@ -405,7 +407,7 @@ namespace FireRescue
             for(int x=0;x<field.Width&&count<FireAtmosphereCapacity;x++)
             {
                 var state=field.GetCell(x,z);if(!state.IsBurning)continue;
-                int key=z*field.Width+x;if(stride>1&&PositiveHash(key+491)%stride!=0)continue;
+                int key=z*field.Width+x;if(stride>1&&FireSurface.CellHash(key+491)%stride!=0)continue;
                 float phase=Mathf.Repeat(key*.618034f,1f);
                 float rise=Mathf.Repeat(fireClock*(.33f+phase*.16f)+phase,1f);
                 float strength=Mathf.Sqrt(Mathf.Clamp01(state.Intensity));
@@ -427,18 +429,6 @@ namespace FireRescue
             fireAtmosphereParticles.SetParticles(fireAtmosphereBuffer,count);
         }
 
-        static int PositiveHash(int value)
-        {
-            // A small avalanche hash avoids row/column striping for stride 2, 3, 4…
-            // which a simple linear-congruential modulo would produce.
-            unchecked
-            {
-                uint x=(uint)value;
-                x^=x>>16;x*=0x7feb352d;x^=x>>15;x*=0x846ca68b;x^=x>>16;
-                return (int)(x&int.MaxValue);
-            }
-        }
-
         void EnsureHeatMap()
         {
             if (!heatMaterial.HasProperty(HeatMap))
@@ -452,17 +442,20 @@ namespace FireRescue
                 if (heatTexture) Destroy(heatTexture);
                 heatTexture=new Texture2D(field.Width,field.Height,TextureFormat.RGBA32,false,true)
                 {
-                    name="Live floor flame coverage", filterMode=FilterMode.Bilinear, wrapMode=TextureWrapMode.Clamp
+                    name="Ground ash coverage", filterMode=FilterMode.Bilinear, wrapMode=TextureWrapMode.Clamp
                 };
                 heatPixels=new Color32[field.Width*field.Height];
                 heatMaterial.SetTexture(HeatMap,heatTexture);
             }
             float width=field.Width*field.CellSize, depth=field.Height*field.CellSize;
             var mapping=new Vector4(field.Origin.x,field.Origin.z,1f/width,1f/depth);
-            if (mapping==heatWorld && dangerRenderer.transform.position.y==field.Origin.y+.035f) return;
+            // Floor finish is 4.5 mm above the field origin and surface water is 6 mm above it.
+            float height = field.Origin.y + (useSurfaceWater ? .005f : .035f);
+            if (mapping == heatWorld && dangerRenderer.transform.position.y == height) return;
             heatWorld=mapping;
             heatMaterial.SetVector(HeatMapWorld,mapping);
-            dangerRenderer.transform.SetPositionAndRotation(field.Origin+new Vector3(width*.5f,.035f,depth*.5f),Quaternion.identity);
+            dangerRenderer.transform.SetPositionAndRotation(
+                new Vector3(field.Origin.x + width * .5f, height, field.Origin.z + depth * .5f), Quaternion.identity);
             dangerRenderer.transform.localScale=new Vector3(width,1f,depth);
         }
 
@@ -507,28 +500,31 @@ namespace FireRescue
             CreateMaterials();
             waterVolumes=new WaterVolumeMesh(transform,waterMaterial);
             puddleMesh=CreatePuddleMesh();
-            flameMesh = FireSurface.CreateTongueMesh();
+            if (!groundHeatOnly) flameMesh = FireSurface.CreateTongueMesh();
             heatMaterial=FireSurface.CreateMaterial();
-            heatMaterial.name="Soft ground fire glow";
-            heatMaterial.renderQueue=2995;
+            heatMaterial.name="Cartoon ground ash";
+            heatMaterial.renderQueue=2985;
             dangerMesh=FireSurface.CreateFootprintMesh();
-            dangerMesh.name="Floor fire glow surface";
+            dangerMesh.name="Ground ash surface";
             var floorUv=new Vector4(0f,0f,-2f,0f);
             dangerMesh.SetUVs(0,new[]{floorUv,floorUv,floorUv,floorUv});
-            var danger=new GameObject("Ground Fire Glow");danger.transform.SetParent(transform,false);
+            var danger=new GameObject("Ground Ash");danger.transform.SetParent(transform,false);
             danger.AddComponent<MeshFilter>().sharedMesh=dangerMesh;dangerRenderer=danger.AddComponent<MeshRenderer>();
             dangerRenderer.sharedMaterial=heatMaterial;dangerRenderer.enabled=false;
             dangerRenderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;dangerRenderer.receiveShadows=false;
             particleBuffer = new ParticleSystem.Particle[billboardCapacity];
             waterParticles = CreateWaterParticles();
-            fireAtmosphereBuffer=new ParticleSystem.Particle[FireAtmosphereCapacity];
-            fireAtmosphereParticles=CreateFireAtmosphereParticles();
+            if (!groundHeatOnly)
+            {
+                fireAtmosphereBuffer=new ParticleSystem.Particle[FireAtmosphereCapacity];
+                fireAtmosphereParticles=CreateFireAtmosphereParticles();
+            }
             droplets = new Transform[dropletCapacity];
             dropletRenderers = new Renderer[dropletCapacity];
             for (int i = 0; i < droplets.Length; i++) CreateDrop(i);
             impacts = new ImpactVisual[splashCapacity];
             for (int i = 0; i < impacts.Length; i++) impacts[i] = CreateImpact(i);
-            fires = new FireVisual[fireCapacity];
+            fires = new FireVisual[groundHeatOnly ? 0 : fireCapacity];
             for (int i = 0; i < fires.Length; i++) fires[i] = CreateFire(i);
         }
 
