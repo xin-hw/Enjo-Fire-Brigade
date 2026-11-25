@@ -12,11 +12,12 @@ namespace FireRescue
         [SerializeField] LocalPlayerInput input;
         [SerializeField] FluidSource[] sources;
         [SerializeField] WaterLab water;
-        [SerializeField] PowderSprayView powder;
         [SerializeField] Transform[] fires;
         [SerializeField] Transform resident;
+        [SerializeField] bool enableResourceFocus;
         WorldOutlineView outlines;
         HoseConnection hose;
+        float resourceFocusProgress;
 
         public FluidSource Focus => outlines ? outlines.Focus : null;
 
@@ -42,7 +43,6 @@ namespace FireRescue
             foreach (var source in sources)
                 if (source) outlines.AddOpaque(source.transform, source);
             Paint(water ? water.PresentationRoot : null);
-            if (powder) outlines.AddEffect(powder.transform);
             foreach (var root in fires) Paint(root);
         }
 
@@ -64,6 +64,22 @@ namespace FireRescue
             if (!outlines) return;
             FluidSource source = input.NearbySource;
             outlines.Focus = hose && hose.IsConnected && source != hose.Source ? null : source;
+            if (enableResourceFocus && input.ReadDevices)
+                AdvanceResourceFocus(input.ResourceFocusHeld, Time.unscaledDeltaTime);
+        }
+
+        internal void AdvanceResourceFocus(bool held, float deltaTime)
+        {
+            if (!enableResourceFocus || !outlines) return;
+            float duration = held ? .40f : .48f;
+            resourceFocusProgress = Mathf.MoveTowards(resourceFocusProgress, held ? 1f : 0f, deltaTime / duration);
+            outlines.ResourceFocusAmount = Mathf.SmoothStep(0f, 1f, resourceFocusProgress);
+        }
+
+        void OnDisable()
+        {
+            resourceFocusProgress = 0f;
+            if (outlines) outlines.ResourceFocusAmount = 0f;
         }
     }
 }

@@ -10,12 +10,21 @@ namespace FireRescue
         [SerializeField] Collider[] itemColliders;
         [SerializeField] CookingOilArea unsafeFire;
         [SerializeField] FireField unsafeFloor;
+        [SerializeField] BookRescueSequence bookRescue;
         public string ItemId => itemId;
         public string DisplayName => displayName;
         public bool IsHeld { get; private set; }
         public bool IsDelivered { get; private set; }
         public bool IsBurnt { get; private set; }
-        public bool IsSafeToTake=>(!unsafeFire||!unsafeFire.IsHot(transform.position))&&(!unsafeFloor||!unsafeFloor.IsBurningAt(transform.position,.85f));
+        public bool IsSafeToTake=>(!bookRescue || bookRescue.CanTakeBook) &&
+            (!unsafeFire||!unsafeFire.IsHot(transform.position))&&(!unsafeFloor||!unsafeFloor.IsBurningAt(transform.position,.85f));
+        public void InitializeBook(BookRescueSequence sequence, Collider[] colliders)
+        {
+            itemId = "book";
+            displayName = "書";
+            bookRescue = sequence;
+            Initialize(colliders);
+        }
         public void SetFireHazard(CookingOilArea hazard)=>unsafeFire=hazard;
         public void SetFloorHazard(FireField hazard)=>unsafeFloor=hazard;
         public void Scorch()=>IsBurnt=true;

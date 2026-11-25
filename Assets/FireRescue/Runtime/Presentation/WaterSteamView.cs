@@ -56,7 +56,7 @@ namespace FireRescue
 
         void OnEnable() => particles.Play();
 
-        public void AddVapor(Vector3 point, double volume)
+        public void AddVapor(Vector3 point, double volume, bool darkSmoke = false)
         {
             if (volume <= 0d) return;
             credit += volume;
@@ -77,7 +77,7 @@ namespace FireRescue
                     startSize = Mathf.Lerp(.32f, .49f, u),
                     startLifetime = Mathf.Lerp(.48f, .76f, v),
                     rotation = 360f * u,
-                    startColor = new Color(.99f, .99f, 1f, .88f),
+                    startColor = darkSmoke ? new Color(.115f,.097f,.10f,.93f) : new Color(.99f, .99f, 1f, .88f),
                     randomSeed = id + 1
                 }, 1);
                 EmittedCount++;

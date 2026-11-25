@@ -48,6 +48,7 @@ namespace FireRescue
             for (int i = 0; i < count; i++)
             {
                 var sample = emitter.GetParticle(i);
+                if (sample.Element == ElementKind.CarbonDioxide) continue;
                 // The first-level 3D renderer owns water. Keep this legacy view for
                 // oil/powder, without drawing a second opaque sprite jet on top.
                 if(sample.Element==ElementKind.Water&&waterPresentation&&waterPresentation.isActiveAndEnabled)continue;

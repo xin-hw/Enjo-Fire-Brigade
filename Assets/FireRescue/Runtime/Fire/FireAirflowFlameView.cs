@@ -13,11 +13,16 @@ namespace FireRescue
     public sealed class FireAirflowFlameView : MonoBehaviour
     {
         const int Rows = 7;
+        const int CurvedColumns = 5;
         [SerializeField] FireAirflowSolver airflow;
         [SerializeField] FireAirflowSmokeView smoke;
         [SerializeField, Min(1)] int maximumFlames = 32;
         [SerializeField, Min(.01f)] float minimumIntensity = .051f;
         [SerializeField] bool automaticTick = true;
+        [SerializeField] bool sculptedTongues;
+        [SerializeField] bool redGroundFire;
+
+        public void UseRedGroundPalette() => redGroundFire = true;
 
         Flame[] flames = Array.Empty<Flame>();
         int[] cellOrder = Array.Empty<int>();
@@ -55,6 +60,9 @@ namespace FireRescue
             ActiveFlameCount = 0;
             int next = 0;
             FireField field = airflow.Field;
+            Camera view = Camera.main;
+            Vector3 screenRight = view ? Vector3.ProjectOnPlane(view.transform.right, Vector3.up).normalized : Vector3.right;
+            if (screenRight.sqrMagnitude < .0001f) screenRight = Vector3.right;
             EnsureCellOrder(field.Width * field.Height);
             foreach (int index in cellOrder)
             {
@@ -63,7 +71,8 @@ namespace FireRescue
                 int z = index / field.Width;
                 FireCellState state = field.GetCell(x, z);
                 if (state.Intensity <= minimumIntensity) continue;
-                UpdateFlame(flames[next], field.CellCenter(x, z), state.Intensity, x, z);
+                float phase = x * 1.618f + z * 2.414f;
+                UpdateFlame(flames[next], field.CellCenter(x, z), state.Intensity, index, phase, screenRight);
                 next++;
             }
             ActiveFlameCount = next;
@@ -92,6 +101,7 @@ namespace FireRescue
                 maximumFlames = Mathf.Max(1, maximumFlames);
                 material = FireSurface.CreateMaterial();
                 material.name = "Airflow study flame material";
+                if (redGroundFire) material.SetFloat("_FirePalette", 1f);
                 properties = new MaterialPropertyBlock();
                 flames = new Flame[maximumFlames];
                 for (int i = 0; i < flames.Length; i++) flames[i] = CreateFlame(i);
@@ -114,71 +124,71 @@ namespace FireRescue
             mesh.MarkDynamic();
             filter.sharedMesh = mesh;
             root.SetActive(false);
-            return new Flame(root, renderer, mesh);
+            return new Flame(root, renderer, mesh, sculptedTongues ? CurvedColumns : 2);
         }
 
-        void UpdateFlame(Flame flame, Vector3 floor, float intensity, int x, int z)
+        void UpdateFlame(Flame flame, Vector3 floor, float intensity, int index, float phase, Vector3 screenRight)
         {
             if (!flame.Root.activeSelf) flame.Root.SetActive(true);
             float scale = Mathf.Sqrt(Mathf.Clamp01(intensity));
             float growth = Mathf.SmoothStep(0f, 1f, (intensity - minimumIntensity) / .18f);
             float height = Mathf.Lerp(.32f, 1.12f, scale) * growth;
             float width = Mathf.Lerp(.11f, .28f, scale) * growth;
-            flame.Root.transform.position = floor + Vector3.up * .015f;
-            WriteRibbon(flame, airflow, floor, intensity, height, width);
-            FireSurface.SetPhase(flame.Renderer, properties, x * 1.618f + z * 2.414f, scale > .72f ? 1f : 0f);
+            Vector3 rootPosition = floor + Vector3.up * .015f;
+            Vector3 awayFromCamera = Vector3.Cross(screenRight, Vector3.up);
+            if (sculptedTongues)
+            {
+                int hash = FireSurface.CellHash(index + 2713);
+                height *= Mathf.Lerp(.83f, 1.18f, (hash & 255) / 255f);
+                width *= Mathf.Lerp(.88f, 1.13f, ((hash >> 8) & 255) / 255f);
+                flame.Root.transform.SetPositionAndRotation(rootPosition, Quaternion.LookRotation(awayFromCamera));
+            }
+            else flame.Root.transform.position = rootPosition;
+
+            WriteFlameSurface(flame, floor, height, width, phase, screenRight, awayFromCamera);
+            float boost = sculptedTongues ? Mathf.InverseLerp(.48f, .90f, scale) : (scale > .72f ? 1f : 0f);
+            FireSurface.SetPhase(flame.Renderer, properties, phase, boost);
         }
 
-        static void WriteRibbon(Flame flame, FireAirflowSolver solver, Vector3 floor,
-            float intensity, float height, float width)
+        void WriteFlameSurface(Flame flame, Vector3 floor, float height, float width, float phase,
+            Vector3 screenRight, Vector3 awayFromCamera)
         {
             Vector3[] vertices = flame.Vertices;
             Vector3[] normals = flame.Normals;
-            Vector4[] uvs = flame.Uvs;
-            int[] triangles = flame.Triangles;
-            Camera view = Camera.main;
-            Vector3 screenRight = view
-                ? Vector3.ProjectOnPlane(view.transform.right, Vector3.up).normalized
-                : Vector3.right;
+            int columns = vertices.Length / Rows;
             float previousHeight = 0f;
-            float accumulatedBend = 0f;
-            int triangle = 0;
+            Vector3 bend = Vector3.zero;
             for (int row = 0; row < Rows; row++)
             {
                 float t = row / (float)(Rows - 1);
                 float sampleHeight = height * t;
-                Vector3 flow = solver.SampleFlow(floor + Vector3.up * sampleHeight);
-                if (row == 0) flow += Vector3.up * Mathf.Clamp01(intensity) * .32f;
-                float rise = Mathf.Max(.02f, sampleHeight - previousHeight);
-                // Each horizontal slice reads the velocity at its actual height. The
-                // ribbon bends along an integrated path through the local flow field.
-                accumulatedBend += Vector3.Dot(Vector3.ProjectOnPlane(flow, Vector3.up), screenRight) *
-                    rise * .48f;
+                Vector3 flow = airflow.SampleFlow(floor + Vector3.up * sampleHeight);
+                // Integrate horizontal airflow in both scene axes as the flame rises.
+                float rise = sculptedTongues ? sampleHeight - previousHeight : Mathf.Max(.02f, sampleHeight - previousHeight);
+                bend += Vector3.ProjectOnPlane(flow, Vector3.up) * (rise * .48f);
                 previousHeight = sampleHeight;
-                // The flame mask already tapers toward varying tip heights.
                 float halfWidth = width * Mathf.Lerp(.78f, 1.08f, Mathf.Sin(t * Mathf.PI));
-                for (int side = 0; side < 2; side++)
+                float sideBend = Vector3.Dot(bend, screenRight);
+                float relief = 0f;
+                float depthBend = 0f;
+                if (sculptedTongues)
                 {
-                    int index = row * 2 + side;
-                    float sign = side == 0 ? -1f : 1f;
-                    vertices[index] = new Vector3(accumulatedBend + sign * halfWidth, sampleHeight, 0f);
-                    normals[index] = Vector3.forward;
-                    uvs[index] = new Vector4(side, t, 0f, 0f);
+                    relief = .58f * (1f - .60f * t) * halfWidth;
+                    sideBend += Mathf.Sin(time * 4.1f + phase + t * 5f) * t * t * height * .085f;
+                    depthBend = Vector3.Dot(bend, awayFromCamera);
                 }
-                if (row == Rows - 1) continue;
-                int start = row * 2;
-                triangles[triangle++] = start;
-                triangles[triangle++] = start + 2;
-                triangles[triangle++] = start + 1;
-                triangles[triangle++] = start + 1;
-                triangles[triangle++] = start + 2;
-                triangles[triangle++] = start + 3;
+                for (int column = 0; column < columns; column++)
+                {
+                    float across = column * (2f / (columns - 1)) - 1f;
+                    int index = row * columns + column;
+                    vertices[index] = new Vector3(sideBend + across * halfWidth, sampleHeight,
+                        depthBend - relief * (1f - across * across));
+                    normals[index] = sculptedTongues ? new Vector3(across * (1.16f - .69f * t), .18f * t, -1f).normalized
+                        : Vector3.forward;
+                }
             }
-            flame.Mesh.Clear();
-            flame.Mesh.vertices = vertices;
-            flame.Mesh.normals = normals;
-            flame.Mesh.SetUVs(0, uvs);
-            flame.Mesh.triangles = triangles;
+            flame.Mesh.SetVertices(vertices);
+            flame.Mesh.SetNormals(normals);
             flame.Mesh.RecalculateBounds();
         }
 
@@ -196,17 +206,32 @@ namespace FireRescue
             public readonly Mesh Mesh;
             public readonly Vector3[] Vertices;
             public readonly Vector3[] Normals;
-            public readonly Vector4[] Uvs;
-            public readonly int[] Triangles;
-            public Flame(GameObject root, MeshRenderer renderer, Mesh mesh)
+            public Flame(GameObject root, MeshRenderer renderer, Mesh mesh, int columns)
             {
                 Root = root;
                 Renderer = renderer;
                 Mesh = mesh;
-                Vertices = new Vector3[Rows * 2];
-                Normals = new Vector3[Rows * 2];
-                Uvs = new Vector4[Rows * 2];
-                Triangles = new int[(Rows - 1) * 6];
+                Vertices = new Vector3[Rows * columns];
+                Normals = new Vector3[Vertices.Length];
+                var uvs = new Vector4[Vertices.Length];
+                var triangles = new int[(Rows - 1) * (columns - 1) * 6];
+                int triangle = 0;
+                for (int row = 0; row < Rows; row++)
+                    for (int column = 0; column < columns; column++)
+                    {
+                        int i = row * columns + column;
+                        uvs[i] = new Vector4(column / (float)(columns - 1), row / (float)(Rows - 1), columns > 2 ? 2f : 0f, 0f);
+                        if (row == Rows - 1 || column == columns - 1) continue;
+                        triangles[triangle++] = i;
+                        triangles[triangle++] = i + columns;
+                        triangles[triangle++] = i + 1;
+                        triangles[triangle++] = i + 1;
+                        triangles[triangle++] = i + columns;
+                        triangles[triangle++] = i + columns + 1;
+                    }
+                mesh.SetVertices(Vertices);
+                mesh.SetUVs(0, uvs);
+                mesh.SetTriangles(triangles, 0, false);
             }
         }
     }

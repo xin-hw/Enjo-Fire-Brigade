@@ -12,6 +12,8 @@ Shader "FireRescue/FlowingFire"
         [HideInInspector] _HeatMapWorld ("Floor location and size", Vector) = (0,0,1,1)
         [HideInInspector] _ColorBlocks ("Opaque color blocks", Float) = 0
         [HideInInspector] _PaintedDetail ("Painted flame details", Float) = 0
+        [HideInInspector] _FirePalette ("Fire class palette", Float) = 0
+        [HideInInspector] _FireBend ("Airflow at flame tip", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -21,8 +23,16 @@ Shader "FireRescue/FlowingFire"
             float4 _OuterColor, _CoreColor, _EdgeMask;
             sampler2D _HeatMap;
             float4 _HeatMapWorld;
-            float _FireTime, _Phase, _CoreBoost, _ColorBlocks, _PaintedDetail;
+            float _FireTime, _Phase, _CoreBoost, _ColorBlocks, _PaintedDetail, _FirePalette;
+            float4 _FireBend;
             static const float3 FlameOuter = float3(.91,.25,.12);
+            float3 flameRim()
+            {
+                if (_FirePalette > 2.5) return float3(.07,.29,.79);
+                if (_FirePalette > 1.5) return float3(.96,.38,.07);
+                if (_FirePalette > .5) return float3(.83,.13,.115);
+                return FlameOuter;
+            }
             struct appdata { float4 vertex:POSITION; float3 normal:NORMAL; float4 uv:TEXCOORD0; };
             struct v2f { float4 position:SV_POSITION; float4 uv:TEXCOORD0; float3 normal:TEXCOORD1; float2 worldXZ:TEXCOORD2; };
             float hash(float2 p) { return frac(sin(dot(p,float2(127.1,311.7)))*43758.5453); }
@@ -79,7 +89,7 @@ Shader "FireRescue/FlowingFire"
             v2f vert(appdata v)
             {
                 v2f o;
-                if(v.uv.z>=0)
+                if(v.uv.z>=0 && v.uv.z<1.5)
                 {
                     float h=v.uv.y, t=_FireTime;
                     float bend=(sin(t*4.1+h*6+_Phase)*.09+sin(t*7.3+h*11+_Phase*1.7)*.035)*h*h;
@@ -94,7 +104,8 @@ Shader "FireRescue/FlowingFire"
                     float width=length(unity_ObjectToWorld._m00_m10_m20);
                     float height=length(unity_ObjectToWorld._m01_m11_m21);
                     float3 root=mul(unity_ObjectToWorld,float4(0,0,0,1)).xyz;
-                    float3 world=root+right*v.vertex.x*width+float3(0,v.vertex.y*height,0);
+                    float3 world=root+right*v.vertex.x*width+float3(0,v.vertex.y*height,0)
+                        + _FireBend.xyz * (v.uv.y*v.uv.y);
                     o.position=mul(UNITY_MATRIX_VP,float4(world,1));o.normal=cross(right,float3(0,1,0));
                 }
                 else{o.position=UnityObjectToClipPos(v.vertex);o.normal=UnityObjectToWorldNormal(v.normal);}
@@ -132,6 +143,25 @@ Shader "FireRescue/FlowingFire"
                     tongue(x,height,.36+bend,.63,.26,phase+2.5,turbulence) * .82);
                 float gold = tongue(x,height,.025+bend,.62+.13*_CoreBoost,.37,phase-1.8,turbulence*.65);
                 float cream = tongue(x,height,-.045+bend,.32+.08*_CoreBoost,.20,phase+1.2,turbulence*.53);
+                if (_FirePalette > .5)
+                {
+                    float3 rims = flameRim();
+                    float3 mid = float3(1,.27,.16);
+                    float3 core = float3(1,.51,.34);
+                    float3 bright = float3(1,.75,.58);
+                    if (_FirePalette > 2.5)
+                    {
+                        mid = float3(.12,.53,1); core = float3(.34,.77,1); bright = float3(.82,.95,1);
+                    }
+                    else if (_FirePalette > 1.5)
+                    {
+                        mid = float3(1,.54,.07); core = float3(1,.73,.22); bright = float3(1,.95,.61);
+                    }
+                    float3 block = lerp(rims * .79, rims, step(.24,orange));
+                    block = lerp(block, mid, smoothstep(.51,.68,orange));
+                    block = lerp(block, core, smoothstep(.43,.63,gold));
+                    return lerp(block, bright, smoothstep(.56,.76,cream));
+                }
                 float3 fill = lerp(FlameOuter * float3(.88,.75,.77), FlameOuter, step(.24, orange));
                 fill = lerp(fill, float3(1,.47,.105), smoothstep(.51,.68,orange));
                 fill = lerp(fill, float3(1,.72,.21), smoothstep(.43,.63,gold));
@@ -182,7 +212,7 @@ Shader "FireRescue/FlowingFire"
                             tongue(x,h,.46,.78-.10*bias,.32,phase+4.3,turbulence)));
                 }
                 float volume=1-smoothstep(.82,1,h+(turbulence-.5)*.38);
-                body=lerp(body,volume,step(.5,i.uv.z));
+                body=lerp(body,volume,step(.5,i.uv.z)*(1-step(1.5,i.uv.z)));
                 // Narrow upper wisps rise and fade individually. They are never cut from
                 // one full-width horizontal band, so a tongue cannot split like a sprite.
                 float wispGate=smoothstep(.18,.72,.5+.5*sin(t*1.25+phase*3.17));
@@ -214,7 +244,15 @@ Shader "FireRescue/FlowingFire"
                 if (_ColorBlocks > .5 && _PaintedDetail > .5)
                 {
                     clip(alpha - .28);
-                    return fixed4(paintedFlame(x,h,phase,turbulence), 1);
+                    float3 paint = paintedFlame(x,h,phase,turbulence);
+                    if (i.uv.z > 1.5)
+                    {
+                        // A warm face and an ember-red shaded side follow the curved mesh.
+                        float light = dot(normalize(i.normal), float3(.62,.33,-.71));
+                        float side = (1 - smoothstep(.17,.58,light)) * (1 - .50*h);
+                        paint *= lerp(float3(1,1,1), float3(.83,.60,.65), side * .78);
+                    }
+                    return fixed4(paint, 1);
                 }
                 return flamePixel(color, alpha, heat);
             }
@@ -245,7 +283,7 @@ Shader "FireRescue/FlowingFire"
 
             float4 maskFragment(v2f input) : SV_Target
             {
-                return WriteEffectOutlineMask(input.position, frag(input).a, FlameOuter);
+                return WriteEffectOutlineMask(input.position, frag(input).a, flameRim());
             }
             ENDCG
         }
@@ -257,6 +295,8 @@ Shader "FireRescue/FlowingFire"
             Cull Off
             ZWrite Off
             ZTest Always
+            Blend One One
+            BlendOp Max
             CGPROGRAM
             #pragma target 3.0
             #pragma vertex vert
@@ -275,7 +315,7 @@ Shader "FireRescue/FlowingFire"
                 float depth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, uv);
                 clip(.5 - OutlineDepthVisible(input.position.z, depth, .00008));
                 clip(frag(input).a - .28);
-                return 1;
+                return fixed4(1, step(2.5, _FirePalette), 0, 1);
             }
             ENDCG
         }

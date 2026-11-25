@@ -27,6 +27,8 @@ namespace FireRescue
         CarryItem pudding;
         RescueNpc resident;
         NpcItemRequest request;
+        BookRescueSequence bookRescue;
+        FluidSource[] supplies;
         Camera view;
         string output;
         int frames;
@@ -39,6 +41,7 @@ namespace FireRescue
         bool manualNativePhysics;
         bool nativePlayerLoop;
         bool loggedHoseFault;
+        bool replayHasFocus = true;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Install()
@@ -56,6 +59,7 @@ namespace FireRescue
 
         IEnumerator Start()
         {
+            Application.runInBackground = true;
             captureEvidence = (Application.isEditor || Environment.GetCommandLineArgs().Contains("--capture-evidence")) &&
                 !Environment.GetCommandLineArgs().Contains("--no-capture");
             nativePlayerLoop=Environment.GetCommandLineArgs().Contains("--native-player-loop");
@@ -68,16 +72,20 @@ namespace FireRescue
             tools = input.GetComponent<FirefighterTools>();
             hose = input.GetComponent<HoseConnection>();
             spray = input.GetComponent<SprayEmitter>(); spray.AutomaticSimulation = false;
+            supplies = FindObjectsByType<FluidSource>();
+            foreach (var source in supplies) source.AutomaticRefill = false;
             water = FindAnyObjectByType<WaterLab>(); water.AutomaticTick = false;
             field = FindAnyObjectByType<FireField>(); field.Simulate = false;
             mission = FindAnyObjectByType<FirstReviewMission>(); mission.AutomaticTick = false;
-            incident = FindAnyObjectByType<CookingOilIncident>(); incident.AutomaticTick = false;
+            incident = FindAnyObjectByType<CookingOilIncident>(); if (incident) incident.AutomaticTick = false;
+            bookRescue = mission.BookRescue;
+            if (bookRescue) bookRescue.AutomaticTick = false;
             pan = mission.OilFire;
             contact = input.GetComponent<PlayerFireContact>(); contact.AutomaticTick = false;
             carry = input.GetComponent<PlayerCarryInteraction>();
             pudding = FindAnyObjectByType<CarryItem>();
-            resident = FindAnyObjectByType<RescueNpc>(); resident.Autonomous = false;
-            request = mission.Request; request.AutomaticTick = false;
+            resident = FindAnyObjectByType<RescueNpc>(); if (resident) resident.Autonomous = false;
+            request = mission.Request; if (request) request.AutomaticTick = false;
             view = Camera.main;
             Time.captureDeltaTime = 4f * Dt;
             yield return null;
@@ -102,8 +110,29 @@ namespace FireRescue
                 airflowFlames && airflowFlames.GetComponentsInChildren<MeshRenderer>(true).Any(renderer => IsPainted(renderer.sharedMaterial)),
                 "First level has the painted experiment's water, airflow fire and selective outlines");
             var powder = FindAnyObjectByType<PowderSprayView>();
-            Need(powder && powder.IsDrawing, "The actual dry powder has a supported colour-block renderer");
+            Need(powder && powder.IsDrawing, "The actual dry powder has a supported mist renderer");
             var doors = FindObjectsByType<BreakableDoor>().ToDictionary(door => door.name);
+            var arguments = Environment.GetCommandLineArgs();
+            bool verifyHose = arguments.Contains("--verify-hose");
+            bool verifySupply = arguments.Contains("--verify-supply");
+            if (arguments.Contains("--verify-hose-corner"))
+            {
+                yield return VerifyNativeCornerReel(doors["door.003"], doors["door.004"]);
+                Finish();
+                yield break;
+            }
+            if (bookRescue && !verifyHose && !verifySupply)
+            {
+                yield return VerifyBookRescue(doors);
+                Finish();
+                yield break;
+            }
+            if (verifySupply)
+            {
+                yield return VerifySupply(doors["door.003"]);
+                Finish();
+                yield break;
+            }
             if (Environment.GetCommandLineArgs().Contains("--verify-water-physics"))
             {
                 yield return VerifyWaterPhysics(doors["door.003"]);
@@ -122,7 +151,7 @@ namespace FireRescue
                 Finish();
                 yield break;
             }
-            if (Environment.GetCommandLineArgs().Contains("--verify-hose"))
+            if (verifyHose)
             {
                 if(hose.Physical) yield return VerifyNativeHose(doors["door.003"], doors["door.001"]);
                 else
@@ -143,6 +172,7 @@ namespace FireRescue
             yield return Walk(ToiletApproach);
             Step(interact: true);
             Need(hose.IsConnected && hose.Source.Element == ElementKind.Water, "Connects to the real toilet with E");
+            FluidSource toilet = hose.Source;
             yield return Walk(new Vector3(.45f, .1f, .18f));
             yield return WetExitCorridor();
             yield return Walk(new Vector3(.6f, .1f, -3.42f));
@@ -160,6 +190,7 @@ namespace FireRescue
             yield return Walk(new Vector3(-2.84f,.1f,-2.0f));
             yield return Axe(doors["door.004"]);
             yield return SprayPath(new Vector3(-2.84f,.1f,-1.5f), new Vector3(-2.84f,.1f,-.15f), 180);
+            Need(toilet.RemainingAmount > 0d, $"Water reserve covers the original route ({toilet.RemainingAmount:F2} left)");
             Step(interact: true);
             yield return Walk(new Vector3(-2.84f,.1f,-1.55f));
             if (!doors["door.004"].IsBroken) yield return Axe(doors["door.004"]);
@@ -182,6 +213,7 @@ namespace FireRescue
             Need(!hose.IsReeling,$"Water hose physically returns before connecting the powder source (wait on arrival {swapWait:F2}s)");
             Step(interact: true);
             Need(hose.IsConnected && hose.Source.Element == ElementKind.DryPowder, "Cleared route reaches the storage powder source");
+            FluidSource powderSupply = hose.Source;
             yield return Walk(new Vector3(-5.4f,.1f,2.8f));
             yield return Walk(new Vector3(-2.84f,.1f,-.25f));
             yield return Walk(new Vector3(-2.84f,.1f,-1.55f));
@@ -207,6 +239,7 @@ namespace FireRescue
             yield return Walk(new Vector3(-4.05f,.1f,-3.48f));
             yield return Walk(new Vector3(-1.65f,.1f,-3.46f), tolerance: .22f);
             yield return SprayPath(new Vector3(.5f,.1f,-3.95f), new Vector3(2.6f,.1f,-3.95f), 180);
+            Need(powderSupply.RemainingAmount > 0d, $"Powder reserve covers the pan, pudding and exit corridor ({powderSupply.RemainingAmount:F2} left)");
             Step(interact: true);
             Need(!hose.IsConnected, "Disconnects powder before returning for pudding");
             yield return Walk(new Vector3(-4.1f,.1f,-3.4f));
@@ -674,12 +707,15 @@ namespace FireRescue
         void Step(Vector2 movement = default, Vector3 aim = default, bool pressed = false, bool held = false,
             bool axePressed = false, bool axeHeld = false, bool interact = false)
         {
+            input.SetInputFocus(replayHasFocus);
             if(nativePlayerLoop) SampleNativeMetrics(-1d);
             bool waterAim = held && spray.UsesSurfaceAim;
             if (waterAim)
                 input.TickScreenPointerCommand(movement, view.WorldToScreenPoint(aim), interact, axePressed, axeHeld, pressed, held, Dt);
             else
                 input.TickPointerCommand(movement, aim, interact, false, axePressed, axeHeld, pressed, held, Dt);
+            foreach (var source in supplies) source.TickRefill(Dt);
+            if (simulateFire && bookRescue) bookRescue.Tick(Dt);
             if(manualNativePhysics)
             {
                 nativePhysicsClock+=Dt;
@@ -709,12 +745,12 @@ namespace FireRescue
             peakWaterSplashes = Mathf.Max(peakWaterSplashes,water.ActiveSplashCount);
             if (simulateFire)
             {
-                incident.Tick(Dt);
+                if (incident) incident.Tick(Dt);
                 field.Step(Dt);
             }
             contact.Evaluate();
-            request.Tick(Dt);
-            resident.Tick(Dt);
+            if (request) request.Tick(Dt);
+            if (resident) resident.Tick(Dt);
             mission.Tick(Dt);
             if(nativeChecking && nativeEvidenceStep++%4==0 && captureEvidence)
             {
@@ -824,7 +860,8 @@ namespace FireRescue
             Need(door.IsBroken, $"Actual axe swing opens {door.name} (last hit {tools.LastHit.collider?.name ?? "none"})");
         }
 
-        IEnumerator SprayPath(Vector3 from, Vector3 to, int ticks, Func<bool> until = null, string captureLabel = null)
+        IEnumerator SprayPath(Vector3 from, Vector3 to, int ticks, Func<bool> until = null, string captureLabel = null,
+            bool captureHud = false)
         {
             if (tools.SelectedTool != FirefighterTools.Tool.Hose)
             {
@@ -835,7 +872,7 @@ namespace FireRescue
             bool expectsEmission = ticks > 0 && !(until?.Invoke() ?? false);
             if (expectsEmission) Need(hose.IsConnected, "Requested spray has a connected physical supply");
             int sample = 0;
-            if (captureEvidence && captureLabel != null) Capture($"{captureLabel}-{sample++:D3}");
+            if (captureLabel != null) RecordFrame(-1);
             for (int i = 0; i < ticks && !(until?.Invoke() ?? false); i++)
             {
                 Step(aim: Vector3.Lerp(from, to, i / (float)(ticks - 1)), pressed: i == 0, held: true);
@@ -857,7 +894,13 @@ namespace FireRescue
             void RecordFrame(int tick)
             {
                 if (!captureEvidence) return;
-                if (captureLabel != null) Capture($"{captureLabel}-{sample++:D3}");
+                if (captureLabel != null)
+                {
+                    string name = $"{captureLabel}-{sample++:D3}";
+                    if (captureHud && !Application.isEditor && !Application.isBatchMode)
+                        ScreenCapture.CaptureScreenshot(Path.Combine(output, name + ".png"));
+                    else Capture(name);
+                }
                 else if (tick % 8 == 3 && frames < 180) Capture();
             }
         }

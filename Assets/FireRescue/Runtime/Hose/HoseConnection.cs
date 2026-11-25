@@ -13,6 +13,7 @@ namespace FireRescue
         [SerializeField] Transform hoseInletAnchor;
         [SerializeField] bool automaticWallWrapping;
         [SerializeField] bool breakUnderTension;
+        [SerializeField] bool stowInstantly;
         [SerializeField, Min(.1f)] float breakAfterPullSeconds = .65f;
         const float LengthTolerance = .006f;
         readonly HoseWrapPath wrapPath = new HoseWrapPath();
@@ -36,6 +37,7 @@ namespace FireRescue
         public event Action<HoseConnection> Broke;
         public int BreakCount { get; private set; }
         public bool BreakUnderTension => breakUnderTension;
+        internal bool StowInstantly => stowInstantly;
         public bool IsPullingTaut => Physical ? Physical.IsPulling : pullSeconds>0f;
         public Vector3 InletPosition => InletAt(transform.position);
         internal Vector3 ResolvedInlet => hasPreviousInlet ? resolvedInlet : InletPosition;
@@ -128,8 +130,7 @@ namespace FireRescue
         public bool TryConnect(FluidSource source)
         {
             if (!CanConnect(source) || !CablePathClear(source, transform.position, null)) return false;
-            // Do not replace an active source by destroying the current chain.
-            // Start its normal reel and require a later interaction after retrieval.
+            // Release the current source and require a separate action to connect the next one.
             if (Physical && Physical.HasDeployedMaterial)
             {
                 if (!Physical.IsReeling) Disconnect();

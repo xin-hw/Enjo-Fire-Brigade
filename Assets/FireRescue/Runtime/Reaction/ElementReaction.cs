@@ -26,7 +26,7 @@ namespace FireRescue
             // Physical targets own their fire class. Do not project their response onto
             // the floor beneath a counter, or require a grid/visual for a discrete fire.
             ElementReceiver receiver = hit ? hit.GetComponentInParent<ElementReceiver>() : null;
-            if (receiver && receiver.isActiveAndEnabled) { receiver.Receive(element, amount); return; }
+            if (receiver && receiver.isActiveAndEnabled) { GiveToReceiver(receiver, element, point, direction, amount); return; }
             if (!field) return;
             if (element == ElementKind.Oil) { field.ApplyOil(point, amount, .8f); return; }
             bool water = element == ElementKind.Water;
@@ -101,14 +101,16 @@ namespace FireRescue
             bool water = element == ElementKind.Water;
             bool oil = element == ElementKind.Oil;
             bool powder = element == ElementKind.DryPowder;
-            if (!water && !oil && !powder) return;
+            bool gas = element == ElementKind.CarbonDioxide;
+            if (!water && !oil && !powder && !gas) return;
             ElementReceiver receiver = hit ? hit.GetComponentInParent<ElementReceiver>() : null;
             if (receiver && receiver.isActiveAndEnabled)
             {
-                receiver.Receive(element, amount * (oil ? 1f : effects.ExtinguishMultiplier));
+                GiveToReceiver(receiver, element, point, direction, amount * (oil ? 1f : effects.ExtinguishMultiplier));
                 if(powder&&powderSurfaceSplash)ApplyPowderSplash(point,direction,amount,radius,residueSeconds,effects);
                 return;
             }
+            if (gas) return;
 
             bool fixedSolid = hit && hit.gameObject.layer == 8 &&
                 (!hit.attachedRigidbody || hit.attachedRigidbody.isKinematic);
@@ -145,6 +147,12 @@ namespace FireRescue
                 if(atContact)hit.attachedRigidbody.AddForceAtPosition(impulse,point,ForceMode.Impulse);
                 else hit.attachedRigidbody.AddForce(impulse,ForceMode.Impulse);
             }
+        }
+
+        static void GiveToReceiver(ElementReceiver receiver, ElementKind element, Vector3 point, Vector3 direction, float amount)
+        {
+            if (receiver is ObjectFire fire) fire.ReceiveImpact(element, amount, point, direction);
+            else receiver.Receive(element, amount);
         }
 
         bool WaterReachesCell(Vector3 center)

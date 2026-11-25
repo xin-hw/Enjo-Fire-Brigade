@@ -21,11 +21,11 @@ namespace FireRescue
         const float SourceReleaseDelay = .08f;
         const float ReelSpeedMultiplier = 3f;
         const float FastReelSpeedMultiplier = 2f * ReelSpeedMultiplier;
-        const float ReelMaximumSpeed = 2.5f;
-        const float ReelAccelerationTime = .7f;
-        const float ReelBrakeAcceleration = 3f;
-        const float ReelMotionCooldown = .18f;
-        const float FastReelLead = .102f;
+        const float ReelMaximumSpeed = 4.2f;
+        const float ReelAccelerationTime = .56f;
+        const float ReelBrakeAcceleration = 4.5f;
+        const float ReelMotionCooldown = .13f;
+        const float FastReelLead = .108f;
         const float FastReelGripLimit = .132f;
         const float ObstacleProbeInterval = .04f;
         const int FixedObstacleMask = 1 << 8;
@@ -219,7 +219,9 @@ namespace FireRescue
             acceptedCapture=0f;
             if (sourceJoint) DestroyJoint(sourceJoint);
             sourceJoint = null;
-            if (gripJoint) ConfigureGripDrive(gripJoint, true, reelDrive);
+            foreach (var segment in segments)
+                if (segment.Link) ConfigureBend(segment.Link, true);
+            if (gripJoint) ConfigureGripDrive(gripJoint, true);
             UpdateGripJoint(true);
         }
 
@@ -319,7 +321,7 @@ namespace FireRescue
             joint.anchor = Vector3.zero;
             joint.connectedAnchor = Vector3.up * previous.Length;
             ConfigureLockedLinear(joint);
-            ConfigureBend(joint);
+            ConfigureBend(joint, false);
             joint.enablePreprocessing = false;
             joint.projectionMode = JointProjectionMode.None;
             return joint;
@@ -355,7 +357,7 @@ namespace FireRescue
             gripJoint.connectedBody = last.Body;
             gripJoint.anchor = Vector3.zero;
             gripJoint.connectedAnchor = Vector3.up * last.Length;
-            ConfigureGripDrive(gripJoint, reeling, reelDrive);
+            ConfigureGripDrive(gripJoint, reeling);
             gripJoint.enablePreprocessing = false;
             gripJoint.projectionMode = JointProjectionMode.None;
         }
@@ -367,21 +369,27 @@ namespace FireRescue
             joint.zMotion = ConfigurableJointMotion.Locked;
         }
 
-        static void ConfigureBend(ConfigurableJoint joint)
+        static void ConfigureBend(ConfigurableJoint joint, bool retrieving)
         {
             joint.angularXMotion = ConfigurableJointMotion.Limited;
             joint.angularYMotion = ConfigurableJointMotion.Limited;
             joint.angularZMotion = ConfigurableJointMotion.Limited;
-            joint.lowAngularXLimit = new SoftJointLimit { limit = -80f };
-            joint.highAngularXLimit = new SoftJointLimit { limit = 80f };
-            joint.angularYLimit = new SoftJointLimit { limit = 80f };
-            joint.angularZLimit = new SoftJointLimit { limit = 80f };
-            JointDrive drive = new JointDrive { positionSpring = .025f, positionDamper = .006f, maximumForce = .15f };
+            float bend = retrieving ? 54f : 80f;
+            joint.lowAngularXLimit = new SoftJointLimit { limit = -bend };
+            joint.highAngularXLimit = new SoftJointLimit { limit = bend };
+            joint.angularYLimit = new SoftJointLimit { limit = bend };
+            joint.angularZLimit = new SoftJointLimit { limit = bend };
+            JointDrive drive = new JointDrive
+            {
+                positionSpring = retrieving ? .072f : .025f,
+                positionDamper = retrieving ? .016f : .006f,
+                maximumForce = retrieving ? .22f : .15f
+            };
             joint.angularXDrive = drive;
             joint.angularYZDrive = drive;
         }
 
-        static void ConfigureGripDrive(ConfigurableJoint joint, bool reeling, ReelDrive reelDrive)
+        static void ConfigureGripDrive(ConfigurableJoint joint, bool reeling)
         {
             // A finite implicit PD drive lets the user pull the end and avoids the
             // unstable high-stiffness AddForce spring which used to explode on impact.
@@ -390,17 +398,13 @@ namespace FireRescue
             joint.zMotion = ConfigurableJointMotion.Free;
             // Linear axes are deliberately free: this is a finite-force coupling
             // to a kinematic CharacterController, not an unbounded hard motor.
-            bool soft = reelDrive == ReelDrive.Soft;
+            // Keep the inlet coupled when the feed slows at a snag. Switching
+            // grip force with feed speed lets a loaded rod spring away.
             JointDrive drive = new JointDrive
             {
-                positionSpring = reeling ? reelDrive switch
-                {
-                    ReelDrive.Fast => 5000f,
-                    ReelDrive.Standard => 3300f,
-                    _ => 550f
-                } : 1800f,
-                positionDamper = reeling ? (soft ? 18f : 36f) : 32f,
-                maximumForce = reeling ? (soft ? 18f : 55f) : 120f
+                positionSpring = reeling ? 3400f : 1800f,
+                positionDamper = reeling ? 54f : 32f,
+                maximumForce = reeling ? 62f : 120f
             };
             joint.xDrive = drive;
             joint.yDrive = drive;
@@ -489,8 +493,8 @@ namespace FireRescue
         {
             reelElapsed += dt;
             if (segments.Count == 0) { FinishReel(); return; }
-            // The soft coupling takes over when the inlet moves or the rope snags.
-            // Keep it engaged across several fixed steps to avoid drive chatter.
+            // Slow the feed when the inlet moves or the hose snags.
+            // Keep this rate across several fixed steps to avoid chatter.
             bool movingInlet = inletTravel > .014f;
             reelObstacleClock -= dt;
             if (!movingInlet && reelObstacleClock <= 0f)
@@ -501,20 +505,15 @@ namespace FireRescue
             float gripLimit = reelDrive == ReelDrive.Fast ? FastReelGripLimit : .085f;
             bool loaded = movingInlet || MaximumJointGap > .035f || GripError > gripLimit;
             reelCooldown = loaded ? ReelMotionCooldown : Mathf.Max(0f,reelCooldown-dt);
-            ReelDrive nextDrive = reelCooldown > 0f ? ReelDrive.Soft :
+            reelDrive = reelCooldown > 0f ? ReelDrive.Soft :
                 nearReelObstacle ? ReelDrive.Standard : ReelDrive.Fast;
-            if (nextDrive != reelDrive)
-            {
-                reelDrive = nextDrive;
-                if (gripJoint) ConfigureGripDrive(gripJoint, true, reelDrive);
-            }
             if (reelElapsed < SourceReleaseDelay) return;
-            bool fastReel = reelDrive == ReelDrive.Fast;
             Segment last = segments[segments.Count - 1];
             Vector3 proximal = ProximalPoint(last);
             // The previous physics step must have moved the last rod into
             // the inlet. Continue feeding immediately after it arrives.
-            if (fastReel && reelCapture >= .999f && Vector3.Distance(proximal, handTarget) <= ReelApproachDistance)
+            if (reelCapture >= .999f && Vector3.Distance(proximal, handTarget) <= ReelApproachDistance &&
+                (segments.Count == 1 || Vector3.Distance(proximal, DistalPoint(segments[segments.Count - 2])) <= ReelApproachDistance))
             {
                 RemoveLastAtHand();
                 if (!reeling) return;
@@ -542,14 +541,12 @@ namespace FireRescue
             float lead = reelDrive switch
             {
                 ReelDrive.Fast => FastReelLead,
-                ReelDrive.Standard => .075f,
-                _ => .055f
+                ReelDrive.Standard => .088f,
+                _ => .066f
             };
             float allowed = Mathf.Clamp01(acceptedCapture+lead/last.Length);
-            reelCapture=Mathf.Min(allowed,reelCapture+amount/last.Length);
+            reelCapture += Mathf.Clamp(allowed - reelCapture, 0f, amount / last.Length);
             UpdateGripJoint(true);
-            if (!fastReel && reelCapture >= .999f && Vector3.Distance(proximal, handTarget) <= ReelApproachDistance)
-                RemoveLastAtHand();
         }
 
         bool HasNearbyRoomObstacle()

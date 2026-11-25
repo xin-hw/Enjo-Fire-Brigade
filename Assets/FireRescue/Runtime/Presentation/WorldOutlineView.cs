@@ -12,10 +12,13 @@ namespace FireRescue
         const string HiddenFirePass = "WALL_OCCLUDED_FIRE";
         const string FireOccluderPass = "FIRE_OCCLUDER";
         const string HiddenFireEdgePass = "WALL_FIRE_OUTLINE";
+        const string ResourceMaskPass = "RESOURCE_FOCUS_MASK";
+        const string ResourceFocusPass = "RESOURCE_FOCUS";
         const CameraEvent RenderEvent = CameraEvent.AfterForwardAlpha;
         const CameraEvent OccludedFireEvent = CameraEvent.BeforeForwardAlpha;
         static readonly int Mask = Shader.PropertyToID("_FireRescueOutlineMask");
         static readonly int PixelSize = Shader.PropertyToID("_FireRescueOutlinePixelSize");
+        static readonly int MaskSamples = Shader.PropertyToID("_FireRescueOutlineSamples");
         static readonly int WritingMask = Shader.PropertyToID("_FireRescueWritingOutlineMask");
         static readonly int Selected = Shader.PropertyToID("_Selected");
         static readonly int MainTexture = Shader.PropertyToID("_MainTex");
@@ -25,6 +28,9 @@ namespace FireRescue
         static readonly int HiddenFireMask = Shader.PropertyToID("_FireRescueHiddenFireMask");
         static readonly int DrawHiddenFire = Shader.PropertyToID("_FireRescueDrawHiddenFire");
         static readonly int HiddenFireColour = Shader.PropertyToID("_FireRescueOccludedFireColor");
+        static readonly int ResourceMask = Shader.PropertyToID("_FireRescueResourceMask");
+        static readonly int ResourceScene = Shader.PropertyToID("_FireRescueResourceScene");
+        static readonly int ResourceFocusStrength = Shader.PropertyToID("_FireRescueResourceFocusStrength");
 
         [SerializeField] Renderer fireOcclusionWall;
         [SerializeField] Color hiddenFireColour = new(.80f, .29f, .19f);
@@ -37,10 +43,11 @@ namespace FireRescue
         CommandBuffer hiddenFireCommands;
         Material composite;
         Material green;
-        int hiddenFireEdgePass;
+        int hiddenFireEdgePass, resourceMaskPass, resourceFocusPass;
         bool addedDepth;
 
         public FluidSource Focus { get; set; }
+        internal float ResourceFocusAmount { get; set; }
 
         public void AddOpaque(Transform root, FluidSource source = null) => AddTargets(root, false, source);
         public void AddEffect(Transform root) => AddTargets(root, true, null);
@@ -98,6 +105,8 @@ namespace FireRescue
             green = new Material(shader) { hideFlags = HideFlags.DontSave };
             green.SetFloat(Selected, 1f);
             hiddenFireEdgePass = composite.FindPass(HiddenFireEdgePass);
+            resourceMaskPass = composite.FindPass(ResourceMaskPass);
+            resourceFocusPass = composite.FindPass(ResourceFocusPass);
         }
 
         void OnEnable()
@@ -122,11 +131,13 @@ namespace FireRescue
             if (hiddenFireCommands != null) RecordHiddenFire(pixelSize);
             if (targets.Count == 0) return;
 
+            int samples = GetMaskSampleCount();
             commands.GetTemporaryRT(Mask, -1, -1, 24, FilterMode.Point,
-                RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+                RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear, samples);
             commands.SetRenderTarget(Mask);
             commands.ClearRenderTarget(true, true, Color.clear);
             commands.SetGlobalVector(PixelSize, pixelSize);
+            commands.SetGlobalFloat(MaskSamples, samples);
             commands.SetGlobalFloat(WritingMask, 1f);
             foreach (var target in targets)
             {
@@ -138,6 +149,43 @@ namespace FireRescue
             commands.SetGlobalFloat(WritingMask, 0f);
             commands.Blit(Mask, BuiltinRenderTextureType.CameraTarget, composite, 1);
             commands.ReleaseTemporaryRT(Mask);
+            if (ResourceFocusAmount > 0f && resourceMaskPass >= 0 && resourceFocusPass >= 0)
+                RecordResourceFocus();
+        }
+
+        void RecordResourceFocus()
+        {
+            commands.GetTemporaryRT(ResourceMask, -1, -1, 0, FilterMode.Bilinear,
+                RenderTextureFormat.R8, RenderTextureReadWrite.Linear);
+            commands.SetRenderTarget(ResourceMask);
+            commands.ClearRenderTarget(false, true, Color.clear);
+            foreach (var target in targets)
+            {
+                var source = target.Source;
+                if (!source || !source.isActiveAndEnabled || (source.RemainingAmount <= 0d && !source.CanRefill) ||
+                    !CanDraw(target.Renderer)) continue;
+                commands.DrawRenderer(target.Renderer, composite, target.SubMesh, resourceMaskPass);
+            }
+
+            var format = view.allowHDR ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.Default;
+            commands.GetTemporaryRT(ResourceScene, -1, -1, 0, FilterMode.Bilinear, format);
+            commands.Blit(BuiltinRenderTextureType.CameraTarget, ResourceScene);
+            commands.SetGlobalFloat(ResourceFocusStrength, ResourceFocusAmount);
+            commands.Blit(ResourceScene, BuiltinRenderTextureType.CameraTarget, composite, resourceFocusPass);
+            commands.ReleaseTemporaryRT(ResourceScene);
+            commands.ReleaseTemporaryRT(ResourceMask);
+        }
+
+        int GetMaskSampleCount()
+        {
+            if (!view.allowMSAA || view.actualRenderingPath == RenderingPath.DeferredShading) return 1;
+            // The HDR camera can render through a multisampled intermediate before resolving to its target.
+            int requested = QualitySettings.antiAliasing;
+            if (view.targetTexture) requested = Mathf.Max(requested, view.targetTexture.antiAliasing);
+            if (requested < 2) return 1;
+            var descriptor = new RenderTextureDescriptor(view.scaledPixelWidth, view.scaledPixelHeight,
+                RenderTextureFormat.ARGBHalf, 24) { msaaSamples = requested, sRGB = false };
+            return SystemInfo.GetRenderTextureSupportedMSAASampleCount(descriptor);
         }
 
         void RecordHiddenFire(Vector4 pixelSize)
@@ -158,7 +206,7 @@ namespace FireRescue
                     hiddenFireCommands.GetTemporaryRT(WallMask, -1, -1, 0, FilterMode.Point,
                         RenderTextureFormat.R8, RenderTextureReadWrite.Linear);
                     hiddenFireCommands.GetTemporaryRT(HiddenFireMask, -1, -1, 0, FilterMode.Point,
-                        RenderTextureFormat.R8, RenderTextureReadWrite.Linear);
+                        RenderTextureFormat.RG16, RenderTextureReadWrite.Linear);
                     hiddenFireCommands.SetRenderTarget(WallMask);
                     hiddenFireCommands.ClearRenderTarget(false, true, Color.clear);
                     hiddenFireCommands.SetGlobalVector(PixelSize, pixelSize);

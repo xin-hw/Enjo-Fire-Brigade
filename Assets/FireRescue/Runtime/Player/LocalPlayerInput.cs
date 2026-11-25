@@ -31,7 +31,10 @@ namespace FireRescue
 
         // Tests can submit commands directly without having Update read a physical keyboard or mouse.
         public bool ReadDevices { get; set; } = true;
+        internal bool ResourceFocusHeld => isActiveAndEnabled && inputFocused && !applicationPaused &&
+            (!mission || mission.AllowsInput) && (Input.GetKey(KeyCode.Mouse3) || Input.GetKey(KeyCode.Mouse4));
         public FluidSource NearbySource { get; private set; }
+        public void SetFluidSources(FluidSource[] outlets) => sources = outlets;
 
         public void SetLocomotionFacingDuringPointerInput(bool enabled, bool cursorWhenStationary = false)
         {

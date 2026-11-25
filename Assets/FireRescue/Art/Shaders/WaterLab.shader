@@ -9,6 +9,7 @@ Shader "FireRescue/WaterLab"
         [HideInInspector] _RippleActive ("Recent surface contact", Float) = 0
         [HideInInspector] _ColorBlocks ("Opaque color blocks", Float) = 0
         [HideInInspector] _PaintedDetail ("Painted water details", Float) = 0
+        [HideInInspector] _SculptedWater ("Shaded water volume", Float) = 0
     }
     SubShader
     {
@@ -21,8 +22,9 @@ Shader "FireRescue/WaterLab"
             sampler2D _FireRescueClearWaterScene;
             float4 _FireRescueClearWaterScene_TexelSize;
             float4 _Grid;
-            float _Surface, _WaterTime, _RippleActive, _ColorBlocks, _PaintedDetail;
+            float _Surface, _WaterTime, _RippleActive, _ColorBlocks, _PaintedDetail, _SculptedWater;
             float4 _Ripples[8];
+            float4 _RippleFlow[8];
             static const float3 WaterLight = float3(.86,.96,.97);
             static const float3 WaterShallow = float3(.58,.83,.90);
             static const float3 WaterBody = float3(.41,.73,.83);
@@ -31,6 +33,7 @@ Shader "FireRescue/WaterLab"
             struct Vertex
             {
                 float4 vertex : POSITION;
+                float3 normal : NORMAL;
                 float2 uv : TEXCOORD0;
                 float4 color : COLOR;
             };
@@ -40,6 +43,7 @@ Shader "FireRescue/WaterLab"
                 float2 uv : TEXCOORD0;
                 float3 world : TEXCOORD1;
                 float4 grab : TEXCOORD2;
+                float3 worldNormal : TEXCOORD3;
                 float4 color : COLOR;
             };
             Fragment vert(Vertex v)
@@ -49,6 +53,7 @@ Shader "FireRescue/WaterLab"
                 o.uv = v.uv;
                 o.world = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.grab = ComputeGrabScreenPos(o.position);
+                o.worldNormal = UnityObjectToWorldNormal(v.normal);
                 o.color = v.color;
                 return o;
             }
@@ -88,11 +93,29 @@ Shader "FireRescue/WaterLab"
                 fill = lerp(fill, WaterShade * .90, bank * step(.31, -facing) * .66);
                 fill = lerp(fill, float3(.68,.875,.92), bank * step(.26, facing) * step(.33, broad));
 
-                float2 stroke = float2(dot(world, float2(.88,.48)), dot(world, float2(-.48,.88)));
-                float curl = sin(stroke.y * 13.2 + sin(stroke.x * 4.8) * .52);
-                float broken = noise(stroke * float2(3.6,3.4));
-                float reflection = smoothstep(.83,.96,curl) * smoothstep(.46,.64,broken) * step(.105, waterline);
-                fill = lerp(fill, float3(.67,.85,.91), reflection * .83);
+                if (_SculptedWater > .5)
+                {
+                    // Follow a boundary of the gathered water so glints grow with the puddle.
+                    float inset = 1 - smoothstep(.017,.045,abs(waterline - .093));
+                    float broken = smoothstep(.32,.67,noise(world * 3.8 + float2(2,13)));
+                    float lit = smoothstep(.02,.48,facing);
+                    fill = lerp(fill, WaterLight, inset * broken * lit * .74);
+                    float pool = smoothstep(.48,.77,noise(world * 1.85 + float2(13,7)))
+                        * smoothstep(.14,.34,waterline);
+                    fill = lerp(fill, WaterBody, pool * .54);
+                    float2 reflectionAxes = float2(dot(world, float2(.91,.42)), dot(world, float2(-.42,.91)));
+                    float reflection = smoothstep(.56,.69,noise(reflectionAxes * float2(1.55,5.8) + float2(7,2)))
+                        * smoothstep(.14,.29,waterline);
+                    fill = lerp(fill, WaterShallow, reflection * .56);
+                }
+                else
+                {
+                    float2 stroke = float2(dot(world, float2(.88,.48)), dot(world, float2(-.48,.88)));
+                    float curl = sin(stroke.y * 13.2 + sin(stroke.x * 4.8) * .52);
+                    float broken = noise(stroke * float2(3.6,3.4));
+                    float reflection = smoothstep(.83,.96,curl) * smoothstep(.46,.64,broken) * step(.105, waterline);
+                    fill = lerp(fill, float3(.67,.85,.91), reflection * .83);
+                }
 
                 // Use the strongest nearby impact wave so overlapping hits keep separated arcs.
                 fill = lerp(fill, WaterShallow, smoothstep(.16,.25,strongestCrest));
@@ -132,11 +155,22 @@ Shader "FireRescue/WaterLab"
                     [unroll] for (int j = 0; j < 8; j++)
                     {
                         float age = _WaterTime - _Ripples[j].z;
-                        float radius = length(p - _Ripples[j].xy);
-                        float crest = radius - age * (.53 + _Ripples[j].w * .24);
-                        float angle = dot(normalize(p - _Ripples[j].xy + .001), float2(.85,-.53));
+                        float2 radial = p - _Ripples[j].xy;
+                        float2 heading = normalize(radial + .001);
+                        float radius = length(radial);
+                        float angle = dot(heading, float2(.85,-.53));
                         float envelope = smoothstep(0,.055,age) * (1 - smoothstep(.15,.72,age))
                             * lerp(.30,1,smoothstep(-.45,.7,angle + (broad - .5) * .45));
+                        if (_SculptedWater > .5)
+                        {
+                            // Shallow hits carry the crest forward and shade the shorter back arc.
+                            float2 flow = _RippleFlow[j].xy;
+                            float forward = dot(heading, flow);
+                            radius = length(radial - flow * age * .14) / (1 + max(0,forward) * .34);
+                            radius += (detail - .5) * .028;
+                            envelope *= lerp(.23,.94,smoothstep(-.47,.62,forward + (broad - .5) * 1.12));
+                        }
+                        float crest = radius - age * (.53 + _Ripples[j].w * .24);
                         float shape = (1 - smoothstep(.010,.033,abs(crest)))
                             - .50 * (1 - smoothstep(.008,.026,abs(crest + .034)));
                         float crestStrength = shape * envelope * _Ripples[j].w;
@@ -212,9 +246,25 @@ Shader "FireRescue/WaterLab"
                 return fixed4(tone.xxx, silhouette * i.color.a * .86);
             }
 
+            fixed4 sculptedDrop(Fragment i)
+            {
+                float3 normal = normalize(i.worldNormal);
+                float light = dot(normal, float3(.33,.82,-.47));
+                float3 fill = lerp(WaterShade, WaterBody, smoothstep(-.48,-.17,light));
+                fill = lerp(fill, WaterShallow, smoothstep(.32,.62,light));
+                // The short painted stroke remains anchored to the drop as it turns.
+                float bend = .14 * dot(normal, UNITY_MATRIX_V[0].xyz);
+                float offset = (i.color.r - .5) * .21;
+                float stroke = 1 - smoothstep(.15,.30,abs(i.uv.y - .54 + bend + offset));
+                float highlight = lerp(.21,.72,smoothstep(.28,.87,i.color.b));
+                float glint = smoothstep(.68,.91,light) * stroke * max(highlight, i.color.g * .80);
+                return fixed4(lerp(fill, WaterLight, glint), 1);
+            }
+
             fixed4 frag(Fragment i) : SV_Target
             {
                 if (_Surface > .5) return film(i);
+                if (_SculptedWater > .5) return sculptedDrop(i);
                 return drop(i);
             }
         ENDCG

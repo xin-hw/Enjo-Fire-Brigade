@@ -10,6 +10,7 @@ namespace FireRescue
         [SerializeField] BreakableDoor bedroomDoor;
         [SerializeField] ObjectFire cookingFire;
         [SerializeField] FirstReviewMission mission;
+        [SerializeField] BookRescueSequence bookRescue;
         public bool IsFulfilled { get; private set; }
         public bool IsPoisoned {get;private set;}
         public bool IsDead {get;private set;}
@@ -19,12 +20,26 @@ namespace FireRescue
         public Transform ReceivingHand => receivingHand;
         public void Initialize(Transform hand, BreakableDoor door, ObjectFire fire, FirstReviewMission owner)
         { receivingHand = hand; bedroomDoor = door; cookingFire = fire; mission = owner; }
+        public void InitializeBook(Transform hand, BookRescueSequence sequence, FirstReviewMission owner)
+        {
+            wantedItemId = "book";
+            receivingHand = hand;
+            mission = owner;
+            bookRescue = sequence;
+        }
+        internal bool CanAcceptHeldItem(CarryItem item) => !bookRescue || (item && item.ItemId == wantedItemId && bookRescue.CanTakeBook);
         public bool TryAccept(CarryItem item)
         {
             if (!isActiveAndEnabled || IsFulfilled || !item || item.ItemId != wantedItemId ||
-                !bedroomDoor || !bedroomDoor.IsBroken || !mission || !mission.CanDeliver) return false;
+                !mission || !mission.CanDeliver || !CanAcceptHeldItem(item)) return false;
+            if (!bookRescue && (!bedroomDoor || !bedroomDoor.IsBroken)) return false;
             if (!item.Deliver(receivingHand)) return false;
             IsFulfilled = true;
+            if (bookRescue)
+            {
+                mission.CompleteBookRescue();
+                return true;
+            }
             if(item.IsBurnt){IsPoisoned=true;poisonAge=0;mission.NotifyPoisoned();}
             else mission.NotifyDelivered();
             return true;

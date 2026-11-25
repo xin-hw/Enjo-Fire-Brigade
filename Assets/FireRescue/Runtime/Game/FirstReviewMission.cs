@@ -14,6 +14,7 @@ namespace FireRescue
         [SerializeField] FirefighterTools tools;
         [SerializeField] RescueNpc npc;
         [SerializeField] bool requireAllFiresOut=true;
+        [SerializeField] BookRescueSequence bookRescue;
         public bool AutomaticTick { get; set; }=true;
         public float Remaining { get; private set; }=60;
         public Status CurrentStatus { get; private set; }
@@ -23,8 +24,16 @@ namespace FireRescue
         public Failure FailureCause {get;private set;}
         public ObjectFire OilFire => oilFire;
         public NpcItemRequest Request => request;
+        public BookRescueSequence BookRescue => bookRescue;
         public void Initialize(NpcItemRequest target, RescueGameManager game, ObjectFire fire, FirefighterTools toolOwner, RescueNpc resident)
         { request=target;manager=game;oilFire=fire;tools=toolOwner;npc=resident; }
+        public void ConfigureBookRescue(BookRescueSequence sequence, NpcItemRequest target)
+        {
+            bookRescue = sequence;
+            request = target;
+            oilFire = null;
+            npc = null;
+        }
         void Awake(){Remaining=Mathf.Max(1,deadlineSeconds);CurrentStatus=Status.Active;}
         void Update(){if(AutomaticTick)Tick(Time.deltaTime);}
         public void Tick(float dt)
@@ -40,6 +49,13 @@ namespace FireRescue
             { CurrentStatus=Status.Won;CompletionCount++;if(tools)tools.Stow(); }
         }
         public void NotifyDelivered(){if(CanDeliver)CurrentStatus=Status.Evacuating;}
+        internal void CompleteBookRescue()
+        {
+            if (!bookRescue || !CanDeliver) return;
+            CurrentStatus = Status.Won;
+            CompletionCount++;
+            if (tools) tools.Stow();
+        }
         public void RestartRound()=>UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
         public void NotifyPoisoned(){if(CanDeliver){CurrentStatus=Status.Poisoning;if(tools)tools.Stow();if(npc)npc.Autonomous=false;}}
         public void Fail(Failure reason)

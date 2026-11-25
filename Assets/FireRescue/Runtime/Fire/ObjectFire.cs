@@ -6,7 +6,8 @@ namespace FireRescue
     public enum FireKind
     {
         Ordinary = 0,
-        CookingOil = 1
+        CookingOil = 1,
+        Electrical = 2
     }
 
     /// <summary>
@@ -21,9 +22,13 @@ namespace FireRescue
         // Optional exhibition rule. Existing ordinary/oil fires keep their previous behaviour.
         [SerializeField, Min(0f)] private float waterGrowth;
         [SerializeField, Min(1f)] private float maximumIntensity = 3f;
+        [SerializeField] private bool powderExtinguishesElectrical;
         private float intensity = 1f;
         public float WaterApplied { get; private set; }
         public event Action<float> OilContactedByWater;
+        public event Action<float> CooledByWater;
+        public Vector3 LastImpactPoint { get; private set; }
+        public Vector3 Airflow { get; private set; }
 
         public FireKind Kind => kind;
         public float InitialIntensity => initialIntensity;
@@ -40,7 +45,16 @@ namespace FireRescue
             return delta.sqrMagnitude <= radius * radius;
         }
 
-        private void Awake() => intensity = PositiveFiniteOrZero(initialIntensity);
+        private void Awake()
+        {
+            intensity = PositiveFiniteOrZero(initialIntensity);
+            LastImpactPoint = transform.position;
+        }
+
+        void Update()
+        {
+            if (Airflow != Vector3.zero) Airflow = Vector3.MoveTowards(Airflow, Vector3.zero, 2.1f * Time.deltaTime);
+        }
 
         public void Configure(FireKind fireKind, float value)
         {
@@ -59,6 +73,20 @@ namespace FireRescue
             intensity = Mathf.Max(intensity, value);
         }
 
+        internal void GrowWhileBurning(float gain, float limit)
+        {
+            if (!IsBurning || intensity >= limit || !IsPositiveFinite(gain)) return;
+            intensity = Mathf.Min(intensity + gain, limit);
+        }
+
+        internal void ReceiveImpact(ElementKind element, float amount, Vector3 point, Vector3 direction)
+        {
+            LastImpactPoint = point;
+            if (IsBurning && element == ElementKind.CarbonDioxide && IsPositiveFinite(amount))
+                Airflow = Vector3.ClampMagnitude(Airflow + direction * (amount * 4.4f), 1f);
+            Receive(element, amount);
+        }
+
         public override void Receive(ElementKind element, float amount)
         {
             if (!IsPositiveFinite(amount) || !IsBurning) return;
@@ -70,11 +98,15 @@ namespace FireRescue
                     if (waterGrowth > 0) intensity = Mathf.Min(maximumIntensity, intensity + amount * waterGrowth);
                     OilContactedByWater?.Invoke(amount);
                     break;
-                case ElementKind.DryPowder:
+                case ElementKind.DryPowder when kind != FireKind.Electrical || powderExtinguishesElectrical:
                     Reduce(amount);
                     break;
                 case ElementKind.Water when kind == FireKind.Ordinary:
                     Reduce(amount);
+                    CooledByWater?.Invoke(amount);
+                    break;
+                case ElementKind.CarbonDioxide when kind == FireKind.Electrical:
+                    Reduce(amount * 1.25f);
                     break;
             }
         }

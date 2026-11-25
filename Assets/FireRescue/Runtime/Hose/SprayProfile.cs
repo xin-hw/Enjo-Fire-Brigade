@@ -96,6 +96,15 @@ namespace FireRescue
                 s.GroundLifetime = 4f; s.SpreadAngle = 26f; s.CollisionRadius = .16f;
                 s.ImpactRadius = 1.1f; s.ArcHeight = .3f; s.PacketsPerSecond = 36f;
             }
+            else if (kind == ElementKind.CarbonDioxide)
+            {
+                s.PhysicalBallistics = true;
+                s.MinimumRange = .25f; s.MaximumRange = 5.1f; s.AirLifetime = .75f;
+                s.GroundLifetime = 0f; s.SpreadAngle = 14f; s.CollisionRadius = .055f;
+                s.ImpactRadius = .35f; s.PacketsPerSecond = 48f;
+                s.MuzzleSpeed = 10.5f; s.Gravity = .26f; s.AirDrag = 1.18f;
+                s.MinimumSpeedFraction = .66f; s.MainStreamSpeedFraction = .94f;
+            }
             return s;
         }
     }

@@ -16,7 +16,8 @@ namespace FireRescue
         public bool IsCarrying => HeldItem;
         public CarryItem NearbyItem { get; private set; }
         public CarryItem NearbyUnsafeItem {get;private set;}
-        public bool CanDeliver => HeldItem && recipient && !recipient.IsFulfilled && Reachable(recipient.transform.position + Vector3.up);
+        public bool CanDeliver => HeldItem && recipient && !recipient.IsFulfilled && recipient.CanAcceptHeldItem(HeldItem) &&
+            Reachable(recipient.transform.position + Vector3.up);
         public void Initialize(Transform anchor, CarryItem[] available, NpcItemRequest target, FirefighterTools toolOwner, FirstReviewMission owner)
         { carryAnchor=anchor; items=available; recipient=target; tools=toolOwner; mission=owner; }
         public void RefreshNearby()

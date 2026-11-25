@@ -1,8 +1,8 @@
-# 炎上消防隊 v0.3.1
+# 炎上消防隊 v0.4
 
 ## 下載方法
 
-[下載 Windows x64 ZIP](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/download/v0.3.1/FireRescue-v0.3.1-Windows-x64.zip)，完整解壓縮後執行 `FireRescue.exe`
+[下載 Windows x64 ZIP](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/download/v0.4/FireRescue-v0.4-Windows-x64.zip)，完整解壓縮後執行 `FireRescue.exe`
 
 ## 操作
 
@@ -12,23 +12,26 @@
 | 滑鼠 | 瞄準 |
 | 左鍵 | 裝備斧頭／揮砍 |
 | 右鍵 | 裝備噴槍／接管／噴射 |
-| E | 接管／拔管、拿放／交付布丁 |
+| E | 接管／拔管、拿書／交書 |
+| 滑鼠側鍵（按住） | 顯示可以接管的資源 |
 | R | 重新開始 |
 
-## 與 v0.3 的差異
+## 與 v0.3.1 的差異
 
-![兩版第一關實際遊戲對比](https://raw.githubusercontent.com/xin-hw/Enjo-Fire-Brigade/v0.3.1/Docs/Validation/2026-11-24-v031/v030-v031-comparison.gif)
+### 第一關通關示範
 
-左邊是 v0.3，右邊是 v0.3.1
+https://github.com/user-attachments/assets/8ed8e8e9-32aa-4740-8933-121744ba1f12
 
-- v0.3 的水是透明的，這版改成藍色色塊和深藍描邊，水噴到哪、地上積了多少都比較好看清楚
-- 管子沿用 Unity 物理引擎，空曠的地方收得更快，碰到門角會先放慢
-- 火和地上的灰燼改成卡通色塊
-- 火被牆擋住時，會在牆面顯示一圈細線框
-- 蘇打粉改成奶油色，打到東西會揚起粉塵
-- 換了主角和受困者的模型
-- 客廳換了家具
-- 浴室重新擺過
-- 第一關改成固定視角
-- 重新打光，陰影比之前柔和
-- 布丁可以站遠一點按 E 拿
+[下載原始 MP4](https://github.com/xin-hw/Enjo-Fire-Brigade/releases/download/v0.4/FireRescue-v0.4-Clear-Demo.mp4)
+
+- 第一關從送布丁改成救油膩男子，幫他滅火後就能接他的汽水，去書房滅掉電腦再拿書回來給他
+- 普通火是紅色，用水會冒白蒸汽
+- 油類火是橘色，用水會冒黑煙，火勢也會變大
+- 電器是帶白色火星的藍火，電腦的火會慢慢燒到門口，要先用汽水的二氧化碳清出路
+- 冰箱一直燒的話，火苗會往旁邊的地板延伸
+- 蘇打粉改成半透明的扇形粉霧，現在可以噴到沙發扶手，沙發也能用水滅
+- 汽水噴出的氣流用線條表現，火碰到氣流會順著吹的方向偏
+- 右上角用水滴、粉袋和汽水瓶顯示剩餘量，馬桶會補水，粉和汽水用完就沒了
+- 按住滑鼠側鍵，場景會慢慢變灰，可以接管的資源會亮金色
+- 男子頭上會一直顯示交書要求，交書後打勾
+- 拔管或把管子拉脫時，管子會直接收起來

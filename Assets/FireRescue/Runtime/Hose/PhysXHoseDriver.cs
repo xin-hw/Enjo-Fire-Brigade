@@ -68,7 +68,12 @@ namespace FireRescue
             attachedSource = null;
             // Stop emission now, but deliberately leave already airborne packets alive.
             if (emitter) emitter.Stop();
-            if (IsActive && !IsReeling) chain.ReleaseAndReel();
+            if (connection && connection.StowInstantly)
+            {
+                Clear();
+                filteredLoad = 0f;
+            }
+            else if (IsActive && !IsReeling) chain.ReleaseAndReel();
         }
 
         public void SetInputAvailable(bool available)
@@ -89,24 +94,26 @@ namespace FireRescue
         public void PreparePhysics(float dt)
         {
             if (!IsActive || !connection) return;
-            if (!connection.IsConnected && !IsReeling) Disconnect();
+            bool connected = connection.IsConnected;
+            if (!connected && !IsReeling) Disconnect();
+            if (!IsActive) return;
             chain.SampleState(dt);
             filteredLoad = Mathf.Lerp(filteredLoad, chain.SourceTension, 1f-Mathf.Exp(-dt*18f));
             if (attachedSource) sourcePort = attachedSource.Port;
             Vector3 handTarget=connection.InletPosition;
-            chain.AllowPayout = connection.IsConnected;
-            if (connection.IsConnected && chain.ReserveLength<.01f)
+            chain.AllowPayout = connected;
+            if (connected && chain.ReserveLength<.01f)
             {
                 Vector3 outward=Vector3.ProjectOnPlane(chain.LastTangent,Vector3.up).normalized;
                 float intent=Mathf.Max(0f,Vector3.Dot(movement,outward));
                 handTarget+=outward*(.035f*intent);
             }
             chain.SetTargets(sourcePort,handTarget);
-            if (!inputAvailable || !connection.IsConnected || !PullsOutward(movement)) pullSeconds=0f;
+            if (!inputAvailable || !connected || !PullsOutward(movement)) pullSeconds=0f;
             else if (IsTaut && filteredLoad>ReleaseForce) pullSeconds+=dt;
             else pullSeconds=Mathf.Max(0f,pullSeconds-dt*.25f);
             if (pullSeconds >= PullDuration) connection.BreakFromPhysicalPull();
-            chain.BeforePhysics(dt);
+            if (IsActive) chain.BeforePhysics(dt);
         }
 
         void LateUpdate()

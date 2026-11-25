@@ -26,7 +26,9 @@ namespace FireRescue
         readonly GameObject view;
         readonly Material material;
         readonly Vector4[] ripples = new Vector4[MaxRipples];
+        readonly Vector4[] rippleFlow;
         static readonly int RipplePositions = Shader.PropertyToID("_Ripples");
+        static readonly int RippleFlow = Shader.PropertyToID("_RippleFlow");
         static readonly int WaterClock = Shader.PropertyToID("_WaterTime");
         static readonly int RippleActive = Shader.PropertyToID("_RippleActive");
         readonly LayerMask obstacles;
@@ -39,7 +41,8 @@ namespace FireRescue
         public int WetCells { get; private set; }
         public Collider Collider => collider;
 
-        public WaterLabSurface(Collider surface, Bounds area, Shader shader, Transform parent, LayerMask obstacles, bool sampleFootprint)
+        public WaterLabSurface(Collider surface, Bounds area, Shader shader, Transform parent, LayerMask obstacles,
+            bool sampleFootprint, bool sculptedWater = false)
         {
             collider = surface;
             bounds = area;
@@ -63,6 +66,12 @@ namespace FireRescue
                 { name = surface.name + " water depth", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
             material = new Material(shader) { name = surface.name + " water film", renderQueue = 2990 };
             material.SetFloat("_Surface", 1f);
+            if (sculptedWater)
+            {
+                rippleFlow = new Vector4[MaxRipples];
+                material.SetFloat("_SculptedWater", 1f);
+                material.SetVectorArray(RippleFlow, rippleFlow);
+            }
             material.SetTexture("_WaterData", texture);
             material.SetVector("_Grid", new Vector4(width, height, 1f / width, 1f / height));
             material.SetVectorArray(RipplePositions, ripples);
@@ -150,11 +159,17 @@ namespace FireRescue
             return count;
         }
 
-        public void AddRipple(Vector3 point, float normalSpeed, float time)
+        public void AddRipple(Vector3 point, float normalSpeed, Vector3 tangentVelocity, float time)
         {
             if (normalSpeed < .8f || time - lastRipple < .072f) return;
             lastRipple = time;
             ripples[rippleIndex] = new Vector4(point.x, point.z, time, Mathf.InverseLerp(.8f, 6f, normalSpeed));
+            if (rippleFlow != null)
+            {
+                Vector2 flow = Vector2.ClampMagnitude(new Vector2(tangentVelocity.x, tangentVelocity.z) / 6f, 1f);
+                rippleFlow[rippleIndex] = new Vector4(flow.x, flow.y, 0f, 0f);
+                material.SetVectorArray(RippleFlow, rippleFlow);
+            }
             rippleIndex = (rippleIndex + 1) % ripples.Length;
             material.SetVectorArray(RipplePositions, ripples);
         }

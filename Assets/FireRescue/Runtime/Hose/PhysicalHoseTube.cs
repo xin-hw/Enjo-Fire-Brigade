@@ -88,7 +88,7 @@ namespace FireRescue
 
         void ReleaseEnd(HoseConnection hose)
         {
-            if (hose.Physical) return;
+            if (hose.Physical || hose.StowInstantly) return;
             reelSource=hose.Source;
             freeEnd=reelSource.Port;
             reelInlet=hose.ResolvedInlet;

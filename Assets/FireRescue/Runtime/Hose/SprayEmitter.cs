@@ -92,8 +92,9 @@ namespace FireRescue
         public float TotalEmittedAmount { get; private set; }
         public float DroppedAmount { get; private set; }
         internal bool UseDropletBundle { get; set; }
-        public bool UsesSurfaceAim => UsesBallisticWater || (UseDropletBundle && directionalSpray && hose &&
-            hose.Source && hose.Source.Element == ElementKind.DryPowder && hose.Source.SpraySettings.PhysicalBallistics);
+        public bool UsesSurfaceAim => UsesBallisticWater || (directionalSpray && hose && hose.Source &&
+            hose.Source.SpraySettings.PhysicalBallistics && (hose.Source.Element == ElementKind.CarbonDioxide ||
+                (UseDropletBundle && hose.Source.Element == ElementKind.DryPowder)));
         internal double WaterDiscarded { get; private set; }
         internal double AirborneWaterAmount
         {
@@ -155,11 +156,15 @@ namespace FireRescue
         public void Tick(Vector3 aimPoint, bool held, float dt, bool aimAtSurface = false)
         {
             if (directionalSpray) { EmitDirectional(aimPoint, held, dt, aimAtSurface); return; }
-            IsSpraying = held && hose && hose.IsConnected && dt > 0;
+            IsSpraying = false;
             HasImpact = false;
             Vector3 direction = (aimPoint - NozzlePosition).normalized;
             ImpactPoint = NozzlePosition + direction * range;
-            if (!IsSpraying || direction.sqrMagnitude < .5f) return;
+            FluidSource source = held && hose ? hose.Source : null;
+            if (!source || !Finite(direction) || direction.sqrMagnitude < .5f || !Finite(dt) || dt <= 0f) return;
+            float amount = source.Draw(source.FlowRate * dt);
+            IsSpraying = amount > 0f;
+            if (!IsSpraying) return;
             int count = Physics.SphereCastNonAlloc(NozzlePosition, .08f, direction, hits, range, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
             float closest = float.MaxValue;
             RaycastHit hit = default;
@@ -171,7 +176,7 @@ namespace FireRescue
             }
             if (!HasImpact) return;
             ImpactPoint = hit.point;
-            reactions.Apply(hose.Source.Element, hit.point, direction, hose.Source.FlowRate * dt, hit.collider);
+            reactions.Apply(source.Element, hit.point, direction, amount, hit.collider);
         }
 
         public static Vector3 PlanarAimDirection(Vector3 playerPosition, Vector3 aimPoint, Vector3 fallback)
@@ -198,13 +203,8 @@ namespace FireRescue
                 emissionCredit = 1f; // Preserve the immediate visual/physical packet, funded by this tick's actual flow.
             }
             IsSpraying = true; emissionSource = source;
-            float addedAmount = source.FlowRate * dt;
-            if (!Finite(addedAmount)) { Stop(); return; }
-            if (source.Element == ElementKind.Water)
-            {
-                addedAmount = source.DrawWater(addedAmount);
-                if (addedAmount <= 0f) { Stop(); return; }
-            }
+            float addedAmount = source.Draw(source.FlowRate * dt);
+            if (addedAmount <= 0f) { Stop(); return; }
             float priorAmount = pendingAmount;
             pendingAmount += addedAmount;
             if (!Finite(pendingAmount))
@@ -220,10 +220,11 @@ namespace FireRescue
                 pendingAmount = 0f; pendingSnapshot = default; Stop(); return;
             }
             Vector3 direction = PlanarAimDirection(transform.position, aimPoint, transform.forward);
-            bool aimWater = aimAtSurface && UsesSurfaceAim && settings.PhysicalBallistics;
+            bool aimPhysically = aimAtSurface && UsesSurfaceAim && settings.PhysicalBallistics;
             Vector3 toSurface = aimPoint - NozzlePosition;
-            Vector3 aimedVelocity = aimWater && UseDropletBundle ? SolveSurfaceLaunch(toSurface, settings) : Vector3.zero;
-            float angle = aimWater && aimedVelocity == Vector3.zero
+            Vector3 aimedVelocity = aimPhysically && (UseDropletBundle || source.Element == ElementKind.CarbonDioxide)
+                ? SolveSurfaceLaunch(toSurface, settings, source.Element == ElementKind.DryPowder) : Vector3.zero;
+            float angle = aimPhysically && aimedVelocity == Vector3.zero
                 ? WaterLaunchAngle(toSurface, direction, settings) : settings.LaunchAngle;
             pendingSnapshot = CaptureSnapshot(direction, settings, effects, source.Element, angle, aimedVelocity);
             float wholeCredit = Mathf.Floor(emissionCredit);
@@ -261,7 +262,7 @@ namespace FireRescue
             return Mathf.Clamp(angle, -30f, 42f);
         }
 
-        static Vector3 SolveSurfaceLaunch(Vector3 offset, SpraySettings settings)
+        static Vector3 SolveSurfaceLaunch(Vector3 offset, SpraySettings settings, bool loftPowder)
         {
             if (!Finite(offset)) return Vector3.zero;
             float distance = new Vector2(offset.x, offset.z).magnitude;
@@ -270,8 +271,10 @@ namespace FireRescue
             // Choose a flight time by distance, then invert the same gravity and drag
             // used by PositionAt. Save only the initial velocity in the launched drop.
             offset.y += settings.CollisionRadius;
-            float earliest = Mathf.Max(.14f, distance / 8f);
-            float latest = Mathf.Min(.75f, settings.AirLifetime);
+            // A nearby powder fan stays low. Longer shots loft over low furniture
+            // along the real ballistic path, so they still stop at walls and bodies.
+            float earliest = Mathf.Max(.14f, distance / (loftPowder ? 4.8f : 8f));
+            float latest = Mathf.Min(loftPowder ? 1.05f : .75f, settings.AirLifetime);
             for (float time = earliest; time <= latest; time += 1f / 60f)
             {
                 BallisticTerms(time, settings.AirDrag, out float response, out float fall);
@@ -327,6 +330,7 @@ namespace FireRescue
         {
             uint id=sequence++;
             bool irregularWater=snapshot.Element==ElementKind.Water&&snapshot.Settings.PhysicalBallistics;
+            bool powderFan = snapshot.Element == ElementKind.DryPowder && snapshot.Settings.PhysicalBallistics;
             float tier = (id * 3 % 5) / 4f;
             float angle = ((id * 5 % 7) / 3f - 1f) * snapshot.Settings.SpreadAngle * .5f;
             float speed=tier>=1?1:Mathf.Lerp(snapshot.Settings.MinimumSpeedFraction,snapshot.Settings.MainStreamSpeedFraction,tier);
@@ -351,6 +355,12 @@ namespace FireRescue
                 elevationJitter = Mathf.Sin(bearing) * radius * .68f;
                 speed = Mathf.Lerp(.78f, 1f, SampleVariation(id, 17));
             }
+            if (powderFan)
+            {
+                float across = SampleVariation(id, 31) * 2f - 1f;
+                angle = Mathf.Sign(across) * Mathf.Pow(Mathf.Abs(across), 2.2f) * snapshot.Settings.SpreadAngle * .5f;
+                elevationJitter = (SampleVariation(id, 47) * 2f - 1f) * 1.4f;
+            }
             float reach = Mathf.Lerp(snapshot.Settings.MinimumRange, snapshot.Settings.MaximumRange, tier);
             Vector3 direction = Quaternion.AngleAxis(angle, Vector3.up) * snapshot.Direction;
             float elevation = (snapshot.LaunchAngle+elevationJitter) * Mathf.Deg2Rad;
@@ -362,11 +372,14 @@ namespace FireRescue
                 if (!centerDrop)
                 {
                     Vector3 across = Vector3.Cross(Vector3.up, velocity).normalized;
-                    velocity = Quaternion.AngleAxis(angle * .65f, Vector3.up) *
+                    velocity = Quaternion.AngleAxis(angle * (powderFan ? 1f : .65f), Vector3.up) *
                         (Quaternion.AngleAxis(elevationJitter * .65f, across) * velocity);
                     velocity *= Mathf.Lerp(.91f, 1f, SampleVariation(id, 17));
                 }
             }
+            bool gas = snapshot.Element == ElementKind.CarbonDioxide;
+            float trailSeconds = gas ? Mathf.Lerp(.10f,.17f,SampleVariation(id, 61))
+                : (irregularWater ? Mathf.Lerp(.65f, 1.85f, SampleVariation(id, 61)) : 5f) / snapshot.Settings.PacketsPerSecond;
             flights[flightCount++] = new Flight
             {
                 Origin = snapshot.Origin, Position = snapshot.Origin, Previous = snapshot.Origin,
@@ -374,7 +387,7 @@ namespace FireRescue
                 Reach = reach, Lifetime = snapshot.Settings.AirLifetime * (snapshot.Settings.PhysicalBallistics ? 1f : Mathf.Lerp(.55f, 1f, reach / snapshot.Settings.MaximumRange)),
                 Settings = snapshot.Settings, Effects = snapshot.Effects, Element = snapshot.Element, Amount = amount,
                 Floor = snapshot.Floor, SpawnBlock = snapshot.SpawnBlock,Seed=id,CoreWater=core,Burst=snapshot.Burst,
-                TrailSeconds=(irregularWater?Mathf.Lerp(.65f,1.85f,SampleVariation(id,61)):5f)/snapshot.Settings.PacketsPerSecond,
+                TrailSeconds=trailSeconds,
                 VisualScale=irregularWater?Mathf.Lerp(.68f,1.3f,SampleVariation(id,79)):1f
             };
             TotalEmitted++; TotalEmittedAmount += amount;

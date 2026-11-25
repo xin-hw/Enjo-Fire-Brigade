@@ -33,10 +33,15 @@ Shader "FireRescue/ConnectedPlaster"
                 abs(depthRow.w - _CutawayView.w) > .05) return;
 
             float3 center = _CutawayPlayer.xyz + float3(0, .80, 0);
-            float3 relative = mul((float3x3)UNITY_MATRIX_V, IN.worldPos - center);
+            float3 toWall = IN.worldPos - center;
+            float3 relative = mul((float3x3)UNITY_MATRIX_V, toWall);
+            // A tall wall top can be nearer in view depth while still behind the player's feet.
+            float2 groundView = depthRow.xz;
+            float groundDepth = dot(toWall.xz, groundView) / max(.0001, length(groundView));
             float2 capsule = float2(relative.x, max(0, abs(relative.y) - .23));
             float opening = 1 - smoothstep(.62, .78, length(capsule));
             opening *= smoothstep(.025, .20, relative.z) * (1 - smoothstep(1.65, 2.05, relative.z));
+            opening *= smoothstep(.015, .11, groundDepth);
             // Leave a visible strip at the foot of the wall to show the boundary.
             opening *= smoothstep(.08, .22, IN.worldPos.y - _CutawayPlayer.y);
 
